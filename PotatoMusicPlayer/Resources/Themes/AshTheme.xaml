@@ -3,36 +3,35 @@
     <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="ThemeStyles.xaml"/>
     </ResourceDictionary.MergedDictionaries>
-<!-- ===================== カラーパレット =====================
-     Material roles:
-     - SurfaceWindow = 最背面の紙 / SurfacePanel = カード面 / SurfaceRaised = 持ち上げ面
-     - AccentGreen = プライマリアクセント / AccentBlue = セカンダリアクセント -->
-    <Color x:Key="SurfaceWindowColor">#F5F5F5</Color>
-    <Color x:Key="SurfacePanelColor">#FFFFFF</Color>
-    <Color x:Key="SurfaceRaisedColor">#E8E8E8</Color>
-    <Color x:Key="BorderDefaultColor">#CFCFCF</Color>
-    <Color x:Key="TextPrimaryColor">#1B1B1B</Color>
-    <Color x:Key="TextSecondaryColor">#444746</Color>
-    <Color x:Key="AccentGreenColor">#2E7D32</Color>
-    <Color x:Key="AccentGreenHoverColor">#43A047</Color>
-    <Color x:Key="WaveformColor">#1565C0</Color>
-    <Color x:Key="ProgressBarColor">#2E7D32</Color>
-    <Color x:Key="SurfaceControlColor">#FFFFFF</Color>
-    <Color x:Key="BorderControlColor">#A8A8A8</Color>
-    <Color x:Key="MenuHoverColor">#E4E7EC</Color>
-    <Color x:Key="WaveformBackgroundColor">#E9E9E9</Color>
-    <Color x:Key="CloseHoverColor">#D93025</Color>
-    <Color x:Key="AccentBlueColor">#0B57D0</Color>
-    <Color x:Key="ApplyButtonColor">#76B87A</Color>
-    <Color x:Key="MinimapWaveformColor">#5F6368</Color>
-    <Color x:Key="RangeOverlayColor">#C2E7C0</Color>
-    <Color x:Key="RangeOverlayBorderColor">#2E7D32</Color>
-    <Color x:Key="PlaybackCursorColor">#1B1B1B</Color>
-    <Color x:Key="ScrollBarThumbColor">#C1C1C1</Color>
-    <Color x:Key="ResetButtonBackgroundColor">#F0F0F0</Color>
-    <Color x:Key="ResetButtonForegroundColor">#1B1B1B</Color>
-    <Color x:Key="AccentButtonForegroundColor">#18351A</Color>
-    <Color x:Key="PendingIndicatorColor">#8A5A00</Color>
+<!-- ===================== カラーパレット(アッシュ) =====================
+     ダークよりコントラストを抑えた低刺激配色。
+     - 背景: 暗い薄紺 / 文字: 薄い灰色 -->
+    <Color x:Key="SurfaceWindowColor">#2A3340</Color>
+    <Color x:Key="SurfacePanelColor">#323E4D</Color>
+    <Color x:Key="SurfaceRaisedColor">#3B4A5C</Color>
+    <Color x:Key="BorderDefaultColor">#4A5A6E</Color>
+    <Color x:Key="TextPrimaryColor">#C3CAD2</Color>
+    <Color x:Key="TextSecondaryColor">#9AA5B1</Color>
+    <Color x:Key="AccentGreenColor">#7BA88B</Color>
+    <Color x:Key="AccentGreenHoverColor">#93BCA3</Color>
+    <Color x:Key="WaveformColor">#8FA3B8</Color>
+    <Color x:Key="ProgressBarColor">#7BA88B</Color>
+    <Color x:Key="SurfaceControlColor">#3B4A5C</Color>
+    <Color x:Key="BorderControlColor">#5C6F84</Color>
+    <Color x:Key="MenuHoverColor">#43536A</Color>
+    <Color x:Key="WaveformBackgroundColor">#232C37</Color>
+    <Color x:Key="CloseHoverColor">#B0493E</Color>
+    <Color x:Key="AccentBlueColor">#8FA8C8</Color>
+    <Color x:Key="ApplyButtonColor">#4E6E5D</Color>
+    <Color x:Key="MinimapWaveformColor">#7E8B99</Color>
+    <Color x:Key="RangeOverlayColor">#44544A</Color>
+    <Color x:Key="RangeOverlayBorderColor">#8FA88F</Color>
+    <Color x:Key="PlaybackCursorColor">#D5DAE0</Color>
+    <Color x:Key="ScrollBarThumbColor">#5C6F84</Color>
+    <Color x:Key="ResetButtonBackgroundColor">#3B4A5C</Color>
+    <Color x:Key="ResetButtonForegroundColor">#C3CAD2</Color>
+    <Color x:Key="AccentButtonForegroundColor">#FFFFFF</Color>
+    <Color x:Key="PendingIndicatorColor">#C9A84C</Color>
     <Color x:Key="SidebarDimColor">#000000</Color>
 
     <!-- ===================== ブラシ ===================== -->
@@ -54,7 +53,7 @@
     <SolidColorBrush x:Key="AccentBlueBrush" Color="{StaticResource AccentBlueColor}"/>
     <SolidColorBrush x:Key="ApplyButtonBrush" Color="{StaticResource ApplyButtonColor}"/>
     <SolidColorBrush x:Key="MinimapWaveformBrush" Color="{StaticResource MinimapWaveformColor}"/>
-    <SolidColorBrush x:Key="RangeOverlayBrush" Color="{StaticResource RangeOverlayColor}" Opacity="0.45"/>
+    <SolidColorBrush x:Key="RangeOverlayBrush" Color="{StaticResource RangeOverlayColor}" Opacity="0.4"/>
     <SolidColorBrush x:Key="RangeOverlayBorderBrush" Color="{StaticResource RangeOverlayBorderColor}"/>
     <SolidColorBrush x:Key="PlaybackCursorBrush" Color="{StaticResource PlaybackCursorColor}"/>
     <SolidColorBrush x:Key="ScrollBarThumbBrush" Color="{StaticResource ScrollBarThumbColor}"/>
@@ -67,24 +66,24 @@
     <!-- ===================== グラデーション・グロー =====================
          静的な面にのみ使用する。毎フレーム再描画される波形バー自体には付けない。 -->
     <LinearGradientBrush x:Key="TitleBarGradientBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Color="#FFFFFF" Offset="0"/>
-        <GradientStop Color="#E9E9E9" Offset="1"/>
+        <GradientStop Color="#364354" Offset="0"/>
+        <GradientStop Color="#2A3340" Offset="1"/>
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="WaveformBackgroundGradientBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Color="#F2F2F2" Offset="0"/>
-        <GradientStop Color="#E0E0E0" Offset="1"/>
+        <GradientStop Color="#28313D" Offset="0"/>
+        <GradientStop Color="#1F2731" Offset="1"/>
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="MinimapBackgroundGradientBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Color="#F4F4F4" Offset="0"/>
-        <GradientStop Color="#E3E3E3" Offset="1"/>
+        <GradientStop Color="#3B4A5C" Offset="0"/>
+        <GradientStop Color="#323E4D" Offset="1"/>
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="AccentGradientBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Color="#43A047" Offset="0"/>
-        <GradientStop Color="#2E7D32" Offset="1"/>
+        <GradientStop Color="#93BCA3" Offset="0"/>
+        <GradientStop Color="#5F7F6E" Offset="1"/>
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="ProgressGradientBrush" StartPoint="0,0" EndPoint="1,0">
-        <GradientStop Color="#43A047" Offset="0"/>
-        <GradientStop Color="#2E7D32" Offset="1"/>
+        <GradientStop Color="#93BCA3" Offset="0"/>
+        <GradientStop Color="#5F7F6E" Offset="1"/>
     </LinearGradientBrush>
     <DropShadowEffect x:Key="AccentGlowEffect" Color="{StaticResource AccentGreenColor}" BlurRadius="16" ShadowDepth="0" Opacity="0.45"/>
 

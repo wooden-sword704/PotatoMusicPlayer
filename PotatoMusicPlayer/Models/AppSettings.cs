@@ -17,7 +17,8 @@ namespace PotatoMusicPlayer.Models
     {
         Light,
         Dark,
-        System
+        System,
+        Ash
     }
 
     public enum WaveformZoomUnit
@@ -41,12 +42,13 @@ namespace PotatoMusicPlayer.Models
     {
         // ウィンドウ設定
         public double WindowWidth { get; set; } = 900;
-        public double WindowHeight { get; set; } = 400;
+        public double WindowHeight { get; set; } = 520;
         public double WindowLeft { get; set; } = 100;
         public double WindowTop { get; set; } = 100;
         public bool IsAlwaysOnTop { get; set; } = false;
         public bool IsWindowSizeFixed { get; set; } = false;
         public bool IsFullScreen { get; set; } = false;
+        public bool IsMenuBarCollapsed { get; set; } = true;
 
         // 再生設定
         public float DefaultVolume { get; set; } = 0.8f;  // 0.0 ~ 1.0 (1.0 = 100%)
@@ -58,9 +60,12 @@ namespace PotatoMusicPlayer.Models
         public bool RememberLastVolume { get; set; } = true;
         public bool RememberLastLoopMode { get; set; } = true;
         public LoopMode DefaultLoopMode { get; set; } = LoopMode.Off;
+        // ファイル読み込み時に自動で再生を開始する。既定はオフ。
+        public bool AutoPlayOnLoad { get; set; } = false;
 
         // 波形表示設定
         public bool ShowWaveform { get; set; } = true;
+        public bool ShowSpectrum { get; set; } = true;
         public bool RememberWaveformZoom { get; set; } = false;
         public double DefaultWaveformZoomValue { get; set; } = 100;
         public WaveformZoomUnit DefaultWaveformZoomUnit { get; set; } = WaveformZoomUnit.Percentage;

@@ -176,7 +176,10 @@ namespace PotatoMusicPlayer.ViewModels
                 {
                     CurrentMediaFile = await _mediaService.GetMediaInfoAsync(filePath);
                     _settingsService.AddRecentFile(filePath);
-                    Play();
+                    if (_settingsService.GetSettings().AutoPlayOnLoad)
+                        Play();
+                    else
+                        UpdatePlaybackState();
                     StatusMessage = $"Loaded: {CurrentMediaFile.FileName}";
                     _ = LoadWaveformAsync(filePath);
                 }

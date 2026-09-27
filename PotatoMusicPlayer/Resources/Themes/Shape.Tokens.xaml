@@ -1,0 +1,22 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:system="clr-namespace:System;assembly=mscorlib">
+    <!-- Material shape tokens: corner radius / spacing / border thickness. -->
+    <CornerRadius x:Key="MaterialCornerNone">0</CornerRadius>
+    <CornerRadius x:Key="MaterialCornerExtraSmall">2</CornerRadius>
+    <CornerRadius x:Key="MaterialCornerSmall">4</CornerRadius>
+    <CornerRadius x:Key="MaterialCornerMedium">8</CornerRadius>
+    <CornerRadius x:Key="MaterialCornerLarge">12</CornerRadius>
+    <CornerRadius x:Key="MaterialCornerPill">20</CornerRadius>
+    <CornerRadius x:Key="MaterialCornerFab">28</CornerRadius>
+
+    <!-- Spacing scale (dp). Used via StaticResource in paddings and margins. -->
+    <system:Double x:Key="MaterialSpacingXS">2</system:Double>
+    <system:Double x:Key="MaterialSpacingS">4</system:Double>
+    <system:Double x:Key="MaterialSpacingM">8</system:Double>
+    <system:Double x:Key="MaterialSpacingL">12</system:Double>
+    <system:Double x:Key="MaterialSpacingXL">16</system:Double>
+
+    <Thickness x:Key="MaterialBorderThin">1</Thickness>
+    <Thickness x:Key="MaterialBorderNone">0</Thickness>
+</ResourceDictionary>

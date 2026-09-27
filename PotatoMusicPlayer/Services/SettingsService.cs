@@ -51,6 +51,8 @@ namespace PotatoMusicPlayer.Services
                     // 旧設定ファイルには存在しない項目は既定値を適用する。
                     if (settings?.WaveformZoom != null && !json.Contains("\"ProgressiveWaveform\"", StringComparison.Ordinal))
                         settings.WaveformZoom.ProgressiveWaveform = true;
+                    if (settings != null && !json.Contains("\"ShowSpectrum\"", StringComparison.Ordinal))
+                        settings.ShowSpectrum = true;
                     
                     return settings ?? CreateDefaultSettings();
                 }

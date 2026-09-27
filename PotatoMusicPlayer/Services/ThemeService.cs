@@ -13,9 +13,10 @@ namespace PotatoMusicPlayer.Services
         public static event EventHandler ThemeChanged;
         private const string DarkThemeUri = "Resources/Themes/DarkTheme.xaml";
         private const string LightThemeUri = "Resources/Themes/LightTheme.xaml";
+        private const string AshThemeUri = "Resources/Themes/AshTheme.xaml";
         private static ThemeMode _currentMode = ThemeMode.System;
         private static bool _isWatchingSystemTheme;
-        private static bool? _appliedLightTheme;
+        private static string _appliedThemeUri;
 
         public static void Apply(ThemeMode mode)
         {
@@ -30,22 +31,22 @@ namespace PotatoMusicPlayer.Services
                 _isWatchingSystemTheme = watchSystemTheme;
             }
 
-            bool useLight = mode == ThemeMode.Light || (mode == ThemeMode.System && IsSystemLight());
-            if (_appliedLightTheme == useLight)
+            string targetUri = ResolveThemeUri(mode);
+            if (_appliedThemeUri == targetUri)
                 return;
 
-            _appliedLightTheme = useLight;
-            IsLightMode = useLight;
+            _appliedThemeUri = targetUri;
+            IsLightMode = string.Equals(targetUri, LightThemeUri, StringComparison.OrdinalIgnoreCase);
             var dictionaries = Application.Current?.Resources?.MergedDictionaries;
             if (dictionaries != null)
             {
-                string targetUri = useLight ? LightThemeUri : DarkThemeUri;
                 for (int index = dictionaries.Count - 1; index >= 0; index--)
                 {
                     var source = dictionaries[index].Source?.OriginalString;
                     if (source != null &&
                         (source.EndsWith(DarkThemeUri, StringComparison.OrdinalIgnoreCase) ||
-                         source.EndsWith(LightThemeUri, StringComparison.OrdinalIgnoreCase)))
+                         source.EndsWith(LightThemeUri, StringComparison.OrdinalIgnoreCase) ||
+                         source.EndsWith(AshThemeUri, StringComparison.OrdinalIgnoreCase)))
                         dictionaries.RemoveAt(index);
                 }
 
@@ -53,6 +54,18 @@ namespace PotatoMusicPlayer.Services
             }
 
             ThemeChanged?.Invoke(null, EventArgs.Empty);
+        }
+
+        private static string ResolveThemeUri(ThemeMode mode)
+        {
+            return mode switch
+            {
+                ThemeMode.Light => LightThemeUri,
+                ThemeMode.Dark => DarkThemeUri,
+                ThemeMode.Ash => AshThemeUri,
+                // システムがダークの場合は低コントラストのアッシュを既定にする。
+                _ => IsSystemLight() ? LightThemeUri : AshThemeUri,
+            };
         }
 
         private static void SystemEvents_UserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)

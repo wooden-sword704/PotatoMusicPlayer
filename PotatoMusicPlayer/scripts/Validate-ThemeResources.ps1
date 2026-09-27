@@ -1,11 +1,14 @@
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$themesDir = Join-Path $projectRoot 'Resources\Themes'
 $darkPath = Join-Path $projectRoot 'Resources\Themes\DarkTheme.xaml'
 $lightPath = Join-Path $projectRoot 'Resources\Themes\LightTheme.xaml'
+$ashPath = Join-Path $projectRoot 'Resources\Themes\AshTheme.xaml'
 $stylesPath = Join-Path $projectRoot 'Resources\Themes\ThemeStyles.xaml'
 [xml]$dark = Get-Content -Raw $darkPath
 [xml]$light = Get-Content -Raw $lightPath
+[xml]$ash = Get-Content -Raw $ashPath
 [xml]$styles = Get-Content -Raw $stylesPath
 
 function Get-ResourceKeys([xml]$dictionary) {
@@ -20,15 +23,26 @@ function Get-ResourceKeys([xml]$dictionary) {
 
 $darkKeys = Get-ResourceKeys $dark
 $lightKeys = Get-ResourceKeys $light
+$ashKeys = Get-ResourceKeys $ash
 $styleKeys = Get-ResourceKeys $styles
+# Shared token dictionaries (Shape/Motion/Elevation) also contribute theme resources.
+$tokenKeys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($tokenFile in Get-ChildItem $themesDir -Filter '*.Tokens.xaml' -File) {
+    [xml]$tokenDictionary = Get-Content -Raw $tokenFile.FullName
+    $tokenFileKeys = Get-ResourceKeys $tokenDictionary
+    foreach ($key in $tokenFileKeys) { [void]$tokenKeys.Add($key) }
+}
 $missingInLight = @($darkKeys | Where-Object { -not $lightKeys.Contains($_) })
 $missingInDark = @($lightKeys | Where-Object { -not $darkKeys.Contains($_) })
-if ($missingInLight.Count -or $missingInDark.Count) {
-    throw "Theme resource keys differ. Missing in Light: $($missingInLight -join ', '); missing in Dark: $($missingInDark -join ', ')"
+$missingInAsh = @($darkKeys | Where-Object { -not $ashKeys.Contains($_) })
+$missingAshInDark = @($ashKeys | Where-Object { -not $darkKeys.Contains($_) })
+if ($missingInLight.Count -or $missingInDark.Count -or $missingInAsh.Count -or $missingAshInDark.Count) {
+    throw "Theme resource keys differ. Missing in Light: $($missingInLight -join ', '); missing in Dark: $($missingInDark -join ', '); missing in Ash: $($missingInAsh -join ', '); missing Ash keys in Dark: $($missingAshInDark -join ', ')"
 }
 $availableKeys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 foreach ($key in $darkKeys) { [void]$availableKeys.Add($key) }
 foreach ($key in $styleKeys) { [void]$availableKeys.Add($key) }
+foreach ($key in $tokenKeys) { [void]$availableKeys.Add($key) }
 
 function Get-ThemeColorMap([xml]$dictionary) {
     $colors = @{}
@@ -63,7 +77,7 @@ function Assert-Contrast([hashtable]$colors, [string]$foregroundKey, [string]$ba
     }
 }
 
-foreach ($theme in @(@{ Name = 'Dark'; Colors = (Get-ThemeColorMap $dark) }, @{ Name = 'Light'; Colors = (Get-ThemeColorMap $light) })) {
+foreach ($theme in @(@{ Name = 'Dark'; Colors = (Get-ThemeColorMap $dark) }, @{ Name = 'Light'; Colors = (Get-ThemeColorMap $light) }, @{ Name = 'Ash'; Colors = (Get-ThemeColorMap $ash) })) {
     $colors = $theme.Colors
     Assert-Contrast $colors 'TextPrimaryColor' 'SurfaceWindowColor' 4.5 $theme.Name
     Assert-Contrast $colors 'TextSecondaryColor' 'SurfaceWindowColor' 4.5 $theme.Name

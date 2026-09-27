@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Documents;
 using PotatoMusicPlayer.Services;
 using PotatoMusicPlayer.Models;
@@ -49,6 +50,7 @@ namespace PotatoMusicPlayer.Views
 
             // ShowWaveform
             ShowWaveformCheck.IsChecked = _editableSettings.ShowWaveform;
+            ShowSpectrumCheck.IsChecked = _editableSettings.ShowSpectrum;
             var waveformZoom = _editableSettings.WaveformZoom ?? new WaveformZoomSettings();
             _editableSettings.WaveformZoom = waveformZoom;
             ProgressiveWaveformCheck.IsChecked = waveformZoom.ProgressiveWaveform;
@@ -77,6 +79,7 @@ namespace PotatoMusicPlayer.Views
             RememberLastSpeedCheck.IsChecked = _editableSettings.RememberLastPlaybackSpeed;
             RememberLastLoopCheck.IsChecked = _editableSettings.RememberLastLoopMode;
             RememberWaveformZoomCheck.IsChecked = _editableSettings.RememberWaveformZoom;
+            AutoPlayOnLoadCheck.IsChecked = _editableSettings.AutoPlayOnLoad;
             DefaultWaveformZoomValueText.Text = _editableSettings.DefaultWaveformZoomValue.ToString("0.##");
             DefaultWaveformZoomUnitComboBox.SelectedIndex = _editableSettings.DefaultWaveformZoomUnit == WaveformZoomUnit.Seconds ? 1 : 0;
             TrackTransitionDelayText.Text = _editableSettings.TrackTransitionDelaySeconds.ToString("0.##");
@@ -90,13 +93,25 @@ namespace PotatoMusicPlayer.Views
         {
             ContentRendered -= SettingsWindow_ContentRendered;
             ClearValue(BackgroundProperty);
-            Opacity = 1;
+            // Material entrance: fade + slight rise. Duration comes from Motion tokens
+            // so the whole app can be retimed from one place. One-shot only.
+            Duration entranceDuration = TryFindResource("MaterialDurationNormal") is Duration token
+                ? token
+                : new Duration(TimeSpan.FromMilliseconds(180));
+            var fadeIn = new DoubleAnimation(0, 1, entranceDuration);
+            var rise = new DoubleAnimation(8, 0, entranceDuration)
+            {
+                EasingFunction = TryFindResource("MaterialEaseOut") as IEasingFunction
+            };
+            SettingsEntranceTranslate?.BeginAnimation(TranslateTransform.YProperty, rise);
+            BeginAnimation(OpacityProperty, fadeIn);
         }
 
         private bool ApplyCurrentSettings()
         {
             // Apply edited values to the original settings instance and save
             _editableSettings.ShowWaveform = ShowWaveformCheck.IsChecked == true;
+            _editableSettings.ShowSpectrum = ShowSpectrumCheck.IsChecked == true;
             _editableSettings.WaveformZoom.ShowMinimap = ShowMinimapCheck.IsChecked == true;
             _editableSettings.WaveformZoom.ProgressiveWaveform = ProgressiveWaveformCheck.IsChecked == true;
             _editableSettings.WaveformZoom.SaveWaveformCache = SaveWaveformCacheCheck.IsChecked == true;
@@ -104,6 +119,7 @@ namespace PotatoMusicPlayer.Views
             _editableSettings.RememberLastPlaybackSpeed = RememberLastSpeedCheck.IsChecked == true;
             _editableSettings.RememberLastLoopMode = RememberLastLoopCheck.IsChecked == true;
             _editableSettings.RememberWaveformZoom = RememberWaveformZoomCheck.IsChecked == true;
+            _editableSettings.AutoPlayOnLoad = AutoPlayOnLoadCheck.IsChecked == true;
             if (!TryReadNumericSettings() || HasDuplicateHotKeys())
                 return false;
             if (LanguageComboBox.SelectedItem is System.Windows.Controls.ComboBoxItem languageItem &&
@@ -510,9 +526,11 @@ namespace PotatoMusicPlayer.Views
             RememberLastSpeedCheck.Content = _languageService.Get("Settings.RememberLastSpeed");
             RememberLastLoopCheck.Content = _languageService.Get("Settings.RememberLastLoop");
             RememberWaveformZoomCheck.Content = _languageService.Get("Settings.RememberWaveformZoom");
+            AutoPlayOnLoadCheck.Content = _languageService.Get("Settings.AutoPlayOnLoad");
             DefaultWaveformZoomLabelText.Text = _languageService.Get("Settings.DefaultWaveformZoom");
             LightThemeItem.Content = _languageService.Get("Theme.Light");
             DarkThemeItem.Content = _languageService.Get("Theme.Dark");
+            AshThemeItem.Content = _languageService.Get("Theme.Ash");
             SystemThemeItem.Content = _languageService.Get("Theme.System");
             MaxVolumeLabelText.Text = _languageService.Get("Settings.MaxVolume");
             DefaultVolumeLabelText.Text = _languageService.Get("Settings.DefaultVolume");
@@ -526,6 +544,7 @@ namespace PotatoMusicPlayer.Views
             NumericCacheLimitLabelText.Text = _languageService.Get("Settings.WaveformCacheLimit");
             ClearWaveformCacheButton.Content = _languageService.Get("Common.Clear");
             ShowMinimapLabelText.Text = _languageService.Get("Settings.ShowMinimap");
+            ShowSpectrumLabelText.Text = _languageService.Get("Settings.ShowSpectrum");
             WaveformDetailTitleText.Text = _languageService.Get("Settings.WaveformDetail");
             MinimapDetailTitleText.Text = _languageService.Get("Settings.MinimapDetail");
             CursorModeLabelText.Text = _languageService.Get("Settings.CursorMode");

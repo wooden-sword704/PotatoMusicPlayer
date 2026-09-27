@@ -3,7 +3,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="設定" Icon="pack://application:,,,/Resources/Icons/potato.png" Height="640" Width="640" WindowStartupLocation="CenterOwner"
         Style="{StaticResource AppWindowStyle}" ResizeMode="NoResize" Opacity="0">
-    <Border BorderBrush="{DynamicResource BorderDefaultBrush}" BorderThickness="1" Padding="12" Background="{DynamicResource SurfacePanelBrush}">
+    <!-- 背景差し替え式のカード面。将来のぼかし導入時は MaterialCardBorderStyle 側だけ変える。 -->
+    <Border x:Name="SettingsRootCard" Style="{StaticResource MaterialCardBorderStyle}" Padding="12">
+        <Border.RenderTransform>
+            <TranslateTransform x:Name="SettingsEntranceTranslate" Y="8"/>
+        </Border.RenderTransform>
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="160"/>
@@ -58,6 +62,7 @@
                             <ComboBoxItem x:Name="LightThemeItem" Content="ライト" Tag="Light"/>
                             <ComboBoxItem x:Name="DarkThemeItem" Content="ダーク" Tag="Dark"/>
                             <ComboBoxItem x:Name="SystemThemeItem" Content="システム" Tag="System"/>
+                            <ComboBoxItem x:Name="AshThemeItem" Content="アッシュ" Tag="Ash"/>
                         </ComboBox>
                     </Grid>
                     <Grid Margin="0,8,0,0">
@@ -84,6 +89,10 @@
                     <Grid Margin="0,4,0,0">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                         <CheckBox x:Name="RememberWaveformZoomCheck" Grid.Column="1" Content="波形の拡大率を復元" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                    </Grid>
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <CheckBox x:Name="AutoPlayOnLoadCheck" Grid.Column="1" Content="ファイル読込時に自動再生する" Foreground="{DynamicResource TextPrimaryBrush}"/>
                     </Grid>
                 </StackPanel>
 
@@ -247,6 +256,10 @@
                     <StackPanel Orientation="Horizontal" Margin="0,4">
                         <TextBlock x:Name="ShowMinimapLabelText" Text="ミニマップを表示" Width="160" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="ShowMinimapCheck" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,4">
+                        <TextBlock x:Name="ShowSpectrumLabelText" Text="スペクトラムを表示" Width="160" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="ShowSpectrumCheck" VerticalAlignment="Center"/>
                     </StackPanel>
                     <Grid Margin="0,2" Height="28"><Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock x:Name="MinimapHeightLabelText" Text="ミニマップ高さ (px)" Grid.Column="0" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}"/><TextBox x:Name="MinimapHeightText" Grid.Column="1" Width="130" TextAlignment="Center" VerticalAlignment="Center" VerticalContentAlignment="Center" Height="22" HorizontalAlignment="Left" Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderControlBrush}"/></Grid>
                     </StackPanel>

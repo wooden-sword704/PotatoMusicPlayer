@@ -1,0 +1,31 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Material elevation tokens. Apply to outer containers only.
+         Never attach to per-bar waveform elements or per-frame redrawn children. -->
+    <DropShadowEffect x:Key="MaterialElevation0Effect"
+                      BlurRadius="0" ShadowDepth="0" Opacity="0" Color="Black" />
+    <DropShadowEffect x:Key="MaterialElevation1Effect"
+                      BlurRadius="4" ShadowDepth="1" Opacity="0.28" Color="Black" />
+    <DropShadowEffect x:Key="MaterialElevation2Effect"
+                      BlurRadius="8" ShadowDepth="2" Opacity="0.30" Color="Black" />
+    <DropShadowEffect x:Key="MaterialElevation3Effect"
+                      BlurRadius="16" ShadowDepth="6" Opacity="0.32" Color="Black" />
+
+    <!-- Card / AppBar surface helpers. Background stays theme-bound via DynamicResource. -->
+    <Style x:Key="MaterialCardBorderStyle" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource SurfacePanelBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderDefaultBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{DynamicResource MaterialCornerMedium}" />
+        <Setter Property="ClipToBounds" Value="True" />
+        <Setter Property="Effect" Value="{StaticResource MaterialElevation1Effect}" />
+    </Style>
+
+    <Style x:Key="MaterialAppBarBorderStyle" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource SurfacePanelBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="{DynamicResource MaterialCornerNone}" />
+        <Setter Property="ClipToBounds" Value="True" />
+        <Setter Property="Effect" Value="{StaticResource MaterialElevation1Effect}" />
+    </Style>
+</ResourceDictionary>

@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using PotatoMusicPlayer.Models;
 using PotatoMusicPlayer.Services;
@@ -28,6 +31,8 @@ namespace PotatoMusicPlayer
 
         private readonly MainViewModel _viewModel;
         private readonly LanguageService _languageService;
+        private bool _isSidebarOpen;
+        private bool _isSidebarAnimating;
         private bool _isDraggingSeekBar = false;
         private bool _wasPlayingBeforeSeekBarDrag;
         private bool _isDraggingWaveform = false;
@@ -40,6 +45,16 @@ namespace PotatoMusicPlayer
         private bool _resumePlaybackAfterMinimapDrag;
         private bool _wasPlayingBeforeMinimapDrag;
         private bool _isUpdatingVolumeFromCode = false;
+        private bool _isDraggingVolume = false;
+        private double _volumeDragStartX;
+        private double _volumeDragStartValue;
+        private bool _volumeDragMoved;
+        private bool _playPauseIsPlaying;
+        private bool _playPauseIconInitialized;
+        private readonly SpectrumService _spectrumService = new();
+        private DispatcherTimer _spectrumTimer;
+        private readonly List<Rectangle> _spectrumBars = new();
+        private CancellationTokenSource _spectrumLoadCts;
         private float[] _waveformData = Array.Empty<float>();
         private readonly List<Rectangle> _waveformBars = new();
         private Line _playbackCursorLine;
@@ -89,6 +104,12 @@ namespace PotatoMusicPlayer
             // ウィンドウ設定を復元
             RestoreWindowSettings();
             UpdateVolumeIcon(VolumeSlider.Value);
+            UpdatePlayPauseIcon(false, animate: false);
+
+            // スペクトラム描画タイマー(約16fps)。再生・停止いずれも減衰表示する。
+            _spectrumTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+            _spectrumTimer.Tick += (_, _) => DrawSpectrum();
+            _spectrumTimer.Start();
 
             // ホットキー処理
             PreviewKeyDown += MainWindow_PreviewKeyDown;
@@ -102,6 +123,7 @@ namespace PotatoMusicPlayer
 
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
+            PlayEntranceAnimation();
             string startupFile = App.StartupFilePath;
             if (string.IsNullOrEmpty(startupFile) || !FileService.FileExists(startupFile))
                 return;
@@ -116,6 +138,7 @@ namespace PotatoMusicPlayer
             _minimapWaveformCache = null;
             DrawWaveform();
             DrawMinimap();
+            DrawSpectrum();
         }
 
         // ========== ウィンドウ設定の復元・保存 ==========
@@ -128,9 +151,6 @@ namespace PotatoMusicPlayer
             Left = settings.WindowLeft;
             Top = settings.WindowTop;
             Topmost = settings.IsAlwaysOnTop;
-            AlwaysOnTopMenuItem.IsChecked = settings.IsAlwaysOnTop;
-            ShowWaveformMenuItem.IsChecked = settings.ShowWaveform;
-            CenterFixedWaveformMenuItem.IsChecked = settings.WaveformZoom.CursorMode == CursorDisplayMode.CenterFixed;
             WaveformContainer.Visibility = settings.ShowWaveform ? Visibility.Visible : Visibility.Collapsed;
             ApplyWaveformSettingsToUi();
             VolumeSlider.Maximum = Math.Max(100, settings.MaxVolumeMultiplier * 100.0);
@@ -138,17 +158,222 @@ namespace PotatoMusicPlayer
             if (settings.IsWindowSizeFixed)
             {
                 ResizeMode = ResizeMode.NoResize;
-                FixWindowSizeMenuItem.IsChecked = true;
+                SidebarFixWindowSizeCheck.IsChecked = true;
             }
 
             VolumeSlider.Value = Math.Clamp(settings.DefaultVolume * 100, VolumeSlider.Minimum, VolumeSlider.Maximum);
             UpdateThemeMenuSelection(settings.Theme);
+            RestoreSidebarState(settings.IsMenuBarCollapsed);
+        }
+
+        // ========== スペクトラム解析(実データ) ==========
+
+        private void BeginSpectrumAnalysis()
+        {
+            _spectrumLoadCts?.Cancel();
+            _spectrumLoadCts?.Dispose();
+            _spectrumLoadCts = null;
+
+            string path = _viewModel?.CurrentMediaFile?.FilePath;
+            if (string.IsNullOrEmpty(path))
+            {
+                DrawSpectrum();
+                return;
+            }
+
+            if (!System.IO.File.Exists(path))
+            {
+                Debug.WriteLine($"[MainWindow] BeginSpectrumAnalysis: File not found: {path}");
+                DrawSpectrum();
+                return;
+            }
+
+            var cts = new CancellationTokenSource();
+            _spectrumLoadCts = cts;
+            _ = _spectrumService.LoadFileAsync(path, cts.Token);
+        }
+
+        // ========== サイドバー(Web風ドロワー) ==========
+
+        private void RestoreSidebarState(bool collapsed)
+        {
+            // Web風ドロワーは起動時は常に閉じる。設定値は次回トグル時の初期値として保持のみ。
+            _isSidebarOpen = false;
+            _isSidebarAnimating = false;
+            if (SidebarPanel == null || SidebarDimOverlay == null || MainContentGrid == null)
+                return;
+
+            SidebarPanel.Visibility = Visibility.Collapsed;
+            SidebarDimOverlay.Visibility = Visibility.Collapsed;
+            SidebarDimOverlay.BeginAnimation(UIElement.OpacityProperty, null);
+            SidebarDimOverlay.Opacity = 0;
+            if (SidebarSlide != null)
+            {
+                SidebarSlide.BeginAnimation(TranslateTransform.XProperty, null);
+                SidebarSlide.X = -GetSidebarWidth();
+            }
+            MainContentGrid.Effect = null;
+            SyncSidebarChecks();
+            UpdateMenuToggleTooltip();
+        }
+
+        private void MenuToggle_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isSidebarOpen)
+                CloseSidebar();
+            else
+                OpenSidebar();
+        }
+
+        private void OpenSidebar()
+        {
+            if (_isSidebarAnimating || _isSidebarOpen || SidebarPanel == null || SidebarSlide == null)
+                return;
+
+            _isSidebarAnimating = true;
+            _isSidebarOpen = true;
+            SyncSidebarChecks();
+            Duration duration = TryFindResource("MaterialDurationNormal") is Duration token
+                ? token
+                : new Duration(TimeSpan.FromMilliseconds(180));
+            IEasingFunction ease = TryFindResource("MaterialEaseInOut") as IEasingFunction;
+            double panelWidth = GetSidebarWidth();
+
+            SidebarPanel.Visibility = Visibility.Visible;
+            SidebarDimOverlay.Visibility = Visibility.Visible;
+            // 開始値を明示してからアニメーションさせる(画面外に残る不具合の防止)。
+            SidebarSlide.X = -panelWidth;
+            SidebarDimOverlay.Opacity = 0;
+
+            // 背景に軽いぼかしをかける。
+            MainContentGrid.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 6 };
+
+            var slideIn = new DoubleAnimation(-panelWidth, 0, duration) { EasingFunction = ease };
+            slideIn.Completed += (_, _) =>
+            {
+                SidebarSlide.BeginAnimation(TranslateTransform.XProperty, null);
+                SidebarSlide.X = 0;
+                _isSidebarAnimating = false;
+            };
+
+            var fadeIn = new DoubleAnimation(0, 1, duration);
+            fadeIn.Completed += (_, _) =>
+            {
+                SidebarDimOverlay.BeginAnimation(UIElement.OpacityProperty, null);
+                SidebarDimOverlay.Opacity = 1;
+            };
+
+            PersistSidebarState();
+            UpdateMenuToggleTooltip();
+            SidebarSlide.BeginAnimation(TranslateTransform.XProperty, slideIn);
+            SidebarDimOverlay.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+        }
+
+        private void CloseSidebar()
+        {
+            if (_isSidebarAnimating || !_isSidebarOpen || SidebarPanel == null || SidebarSlide == null)
+                return;
+
+            _isSidebarAnimating = true;
+            Duration duration = TryFindResource("MaterialDurationNormal") is Duration token
+                ? token
+                : new Duration(TimeSpan.FromMilliseconds(180));
+            IEasingFunction ease = TryFindResource("MaterialEaseInOut") as IEasingFunction;
+            double panelWidth = GetSidebarWidth();
+
+            var slideOut = new DoubleAnimation(SidebarSlide.X, -panelWidth, duration) { EasingFunction = ease };
+            slideOut.Completed += (_, _) =>
+            {
+                SidebarSlide.BeginAnimation(TranslateTransform.XProperty, null);
+                SidebarDimOverlay.BeginAnimation(UIElement.OpacityProperty, null);
+                SidebarPanel.Visibility = Visibility.Collapsed;
+                SidebarDimOverlay.Visibility = Visibility.Collapsed;
+                SidebarDimOverlay.Opacity = 0;
+                SidebarSlide.X = -panelWidth;
+                MainContentGrid.Effect = null;
+                _isSidebarAnimating = false;
+            };
+
+            var fadeOut = new DoubleAnimation(SidebarDimOverlay.Opacity, 0, duration);
+
+            _isSidebarOpen = false;
+            PersistSidebarState();
+            UpdateMenuToggleTooltip();
+            SidebarSlide.BeginAnimation(TranslateTransform.XProperty, slideOut);
+            SidebarDimOverlay.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+        }
+
+        private double GetSidebarWidth()
+        {
+            double panelWidth = SidebarPanel?.Width ?? 0;
+            if (double.IsNaN(panelWidth) || panelWidth <= 0)
+                panelWidth = SidebarPanel?.ActualWidth ?? 0;
+            if (panelWidth <= 0)
+                panelWidth = 280;
+            return panelWidth;
+        }
+
+        private void PersistSidebarState()
+        {
+            // IsMenuBarCollapsed を「サイドバーが閉じているか」として再利用し、既存設定との互換を保つ。
+            _viewModel.Settings.IsMenuBarCollapsed = !_isSidebarOpen;
+            new SettingsService().SaveSettings(_viewModel.Settings);
+        }
+
+        private void SyncSidebarChecks()
+        {
+            if (_viewModel?.Settings == null || SidebarAlwaysOnTopCheck == null)
+                return;
+
+            var settings = _viewModel.Settings;
+            SidebarAlwaysOnTopCheck.IsChecked = Topmost;
+            SidebarFixWindowSizeCheck.IsChecked = ResizeMode == ResizeMode.NoResize;
+            SidebarShowWaveformCheck.IsChecked = settings.ShowWaveform;
+            SidebarShowSpectrumCheck.IsChecked = settings.ShowSpectrum;
+            SidebarCenterFixedCheck.IsChecked = settings.WaveformZoom.CursorMode == CursorDisplayMode.CenterFixed;
+            UpdateThemeMenuSelection(settings.Theme);
+        }
+
+        private void SidebarDimOverlay_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            CloseSidebar();
+            e.Handled = true;
+        }
+
+        private void SidebarCloseButton_Click(object sender, RoutedEventArgs e) => CloseSidebar();
+
+        private void CloseSidebarAfterAction()
+        {
+            if (_isSidebarOpen)
+                CloseSidebar();
+        }
+
+        private void UpdateMenuToggleTooltip()
+        {
+            if (MenuToggleButton == null || _languageService == null)
+                return;
+
+            MenuToggleButton.ToolTip = _languageService.Get(
+                _isSidebarOpen ? "Main.MenuCollapse" : "Main.MenuExpand");
+        }
+
+        private void PlayEntranceAnimation()
+        {
+            // 起動時のワンショットフェード。Motion トークンで全体と歩調を合わせる。
+            Duration duration = TryFindResource("MaterialDurationNormal") is Duration token
+                ? token
+                : new Duration(TimeSpan.FromMilliseconds(180));
+            BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, duration));
         }
 
         private void MainWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
             SetPlaybackRendering(false);
             ThemeService.ThemeChanged -= ThemeService_ThemeChanged;
+            _spectrumTimer?.Stop();
+            _spectrumLoadCts?.Cancel();
+            _spectrumLoadCts?.Dispose();
+            _spectrumService?.Dispose();
             // ウィンドウの状態を保存
             var settings = _viewModel.Settings;
             if (settings.RememberLastVolume)
@@ -178,6 +403,7 @@ namespace PotatoMusicPlayer
                 if (e.PropertyName == nameof(MainViewModel.CurrentMediaFile))
                 {
                     UpdateMediaInfoDisplay();
+                    BeginSpectrumAnalysis();
                 }
                 else if (e.PropertyName == nameof(MainViewModel.PlaybackState))
                 {
@@ -271,7 +497,7 @@ namespace PotatoMusicPlayer
                 ? GetInterpolatedPlaybackPosition(state)
                 : state.CurrentPosition.TotalSeconds);
 
-            PlayPauseButton.Content = state.State == PlayState.Playing ? "⏸" : "▶";
+            UpdatePlayPauseIcon(state.State == PlayState.Playing);
             TaskbarPlayPauseButton.Description = state.State == PlayState.Playing ? "Pause" : "Play";
             TaskbarPlayPauseButton.ImageSource = state.State == PlayState.Playing
                 ? (System.Windows.Media.ImageSource)FindResource("TaskbarPauseIcon")
@@ -306,9 +532,10 @@ namespace PotatoMusicPlayer
             }
             UpdateMinimapCursor(displayedPosition);
 
-            // 音量バーを実際の音量に追従させる（ホットキー操作時も反映）
+            // 音量バーを実際の音量に追従させる（ホットキー操作時も反映）。
+            // 音量ドラッグ中はマウス操作を優先し、プログラム側で上書きしない。
             _isUpdatingVolumeFromCode = true;
-            if (!state.IsMuted)
+            if (!state.IsMuted && !_isDraggingVolume)
                 VolumeSlider.Value = state.VolumePercent;
             VolumeText.Text = $"{(int)VolumeSlider.Value}%";
             _isUpdatingVolumeFromCode = false;
@@ -369,6 +596,67 @@ namespace PotatoMusicPlayer
             return Math.Clamp(position, 0, Math.Max(0, state.Duration.TotalSeconds));
         }
 
+        // ========== 再生・一時停止アイコンの図形トランジション ==========
+
+        private void UpdatePlayPauseIcon(bool isPlaying, bool animate = true)
+        {
+            if (PlayIconPath == null || PauseIconPath == null)
+                return;
+
+            // 状態通知は約100ms間隔で届くため、変化時のみアニメーションさせる。
+            if (_playPauseIconInitialized && _playPauseIsPlaying == isPlaying)
+                return;
+
+            _playPauseIsPlaying = isPlaying;
+            _playPauseIconInitialized = true;
+            Duration duration = TryFindResource("MaterialDurationFast") is Duration token
+                ? token
+                : new Duration(TimeSpan.FromMilliseconds(100));
+            IEasingFunction ease = TryFindResource("MaterialEaseOut") as IEasingFunction;
+
+            var showPath = isPlaying ? PauseIconPath : PlayIconPath;
+            var hidePath = isPlaying ? PlayIconPath : PauseIconPath;
+            var showScale = isPlaying ? PauseIconScale : PlayIconScale;
+            var hideScale = isPlaying ? PlayIconScale : PauseIconScale;
+
+            if (!animate)
+            {
+                hidePath.BeginAnimation(UIElement.OpacityProperty, null);
+                showPath.BeginAnimation(UIElement.OpacityProperty, null);
+                hideScale?.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                hideScale?.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                showScale?.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                showScale?.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                hidePath.Opacity = 0;
+                showPath.Opacity = 1;
+                if (hideScale != null)
+                    hideScale.ScaleX = hideScale.ScaleY = 0.7;
+                if (showScale != null)
+                    showScale.ScaleX = showScale.ScaleY = 1;
+                return;
+            }
+
+            hidePath.BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(hidePath.Opacity, 0, duration));
+            if (hideScale != null)
+            {
+                hideScale.BeginAnimation(ScaleTransform.ScaleXProperty,
+                    new DoubleAnimation(hideScale.ScaleX, 0.7, duration) { EasingFunction = ease });
+                hideScale.BeginAnimation(ScaleTransform.ScaleYProperty,
+                    new DoubleAnimation(hideScale.ScaleY, 0.7, duration) { EasingFunction = ease });
+            }
+
+            showPath.BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(showPath.Opacity, 1, duration));
+            if (showScale != null)
+            {
+                showScale.BeginAnimation(ScaleTransform.ScaleXProperty,
+                    new DoubleAnimation(0.7, 1, duration) { EasingFunction = ease });
+                showScale.BeginAnimation(ScaleTransform.ScaleYProperty,
+                    new DoubleAnimation(0.7, 1, duration) { EasingFunction = ease });
+            }
+        }
+
         private string FormatTime(TimeSpan ts)
         {
             return ts.Hours > 0 ? ts.ToString(@"hh\:mm\:ss") : ts.ToString(@"mm\:ss");
@@ -377,48 +665,53 @@ namespace PotatoMusicPlayer
         private void ApplyLanguage()
         {
             Title = _languageService.Get("Main.Title");
-            FileMenuItem.Header = _languageService.Get("Main.File");
-            PlaybackMenuItem.Header = _languageService.Get("Main.Playback");
-            ViewMenuItem.Header = _languageService.Get("Main.View");
-            OtherMenuItem.Header = _languageService.Get("Main.Other");
+            SidebarMenuHeaderText.Text = _languageService.Get("Main.MenuTitle");
+            SidebarFileExpander.Header = _languageService.Get("Main.File");
+            SidebarPlaybackExpander.Header = _languageService.Get("Main.Playback");
+            SidebarViewExpander.Header = _languageService.Get("Main.View");
+            SidebarOtherExpander.Header = _languageService.Get("Main.Other");
             VolumeIcon.ToolTip = _languageService.Get("Main.VolumeTooltip");
+            UpdateMenuToggleTooltip();
             if (_viewModel.CurrentMediaFile == null)
                 TitleText.Text = _languageService.Get("Main.NoFile");
 
-            // ファイルメニュー
-            FileOpenMenuItem.Header = _languageService.Get("Menu.File.Open");
-            FileOpenLocationMenuItem.Header = _languageService.Get("Menu.File.OpenLocation");
-            FileOpenTerminalMenuItem.Header = _languageService.Get("Menu.File.OpenTerminal");
-            RecentFilesMenuItem.Header = _languageService.Get("Menu.File.RecentFiles");
-            FileExitMenuItem.Header = _languageService.Get("Menu.File.Exit");
-            FileSettingsMenuItem.Header = _languageService.Get("Menu.Edit.Settings");
+            // ファイルセクション
+            SidebarOpenButton.Content = _languageService.Get("Menu.File.Open");
+            SidebarOpenLocationButton.Content = _languageService.Get("Menu.File.OpenLocation");
+            SidebarOpenTerminalButton.Content = _languageService.Get("Menu.File.OpenTerminal");
+            SidebarRecentHeader.Text = _languageService.Get("Menu.File.RecentFiles");
+            SidebarClearRecentButton.Content = _languageService.Get("Menu.File.ClearRecent");
+            SidebarExitButton.Content = _languageService.Get("Menu.File.Exit");
+            SidebarSettingsButton.Content = _languageService.Get("Menu.Edit.Settings");
 
-            // 再生メニュー
-            PlaybackPlayPauseMenuItem.Header = _languageService.Get("Menu.Playback.PlayPause");
-            PlaybackStopMenuItem.Header = _languageService.Get("Menu.Playback.Stop");
-            PlaybackGoToStartMenuItem.Header = _languageService.Get("Menu.Playback.GoToStart");
-            PlaybackSeekToTimeMenuItem.Header = _languageService.Get("Menu.Playback.SeekToTime");
-            PlaybackSpeedResetMenuItem.Header = _languageService.Get("Menu.Playback.SpeedReset");
-            PlaybackSpeedDecreaseMenuItem.Header = _languageService.Get("Menu.Playback.SpeedDecrease");
-            PlaybackSpeedIncreaseMenuItem.Header = _languageService.Get("Menu.Playback.SpeedIncrease");
-            PlaybackSkipForwardMenuItem.Header = _languageService.Get("Menu.Playback.SkipForward");
-            PlaybackSkipBackwardMenuItem.Header = _languageService.Get("Menu.Playback.SkipBackward");
+            // 再生セクション
+            SidebarPlayPauseButton.Content = _languageService.Get("Menu.Playback.PlayPause");
+            SidebarStopButton.Content = _languageService.Get("Menu.Playback.Stop");
+            SidebarGoToStartButton.Content = _languageService.Get("Menu.Playback.GoToStart");
+            SidebarSeekToTimeButton.Content = _languageService.Get("Menu.Playback.SeekToTime");
+            SidebarSpeedResetButton.Content = _languageService.Get("Menu.Playback.SpeedReset");
+            SidebarSpeedDecreaseButton.Content = _languageService.Get("Menu.Playback.SpeedDecrease");
+            SidebarSpeedIncreaseButton.Content = _languageService.Get("Menu.Playback.SpeedIncrease");
+            SidebarSkipForwardButton.Content = _languageService.Get("Menu.Playback.SkipForward");
+            SidebarSkipBackwardButton.Content = _languageService.Get("Menu.Playback.SkipBackward");
 
-            // 表示メニュー
-            AlwaysOnTopMenuItem.Header = _languageService.Get("Menu.View.AlwaysOnTop");
-            FixWindowSizeMenuItem.Header = _languageService.Get("Menu.View.FixWindowSize");
-            WaveformMenuItem.Header = _languageService.Get("Menu.View.Waveform");
-            ShowWaveformMenuItem.Header = _languageService.Get("Menu.View.ShowWaveform");
-            CenterFixedWaveformMenuItem.Header = _languageService.Get("Menu.View.CenterFixedWaveform");
-            WaveformRangeMenuItem.Header = _languageService.Get("Menu.View.WaveformRange");
-            ViewFullScreenMenuItem.Header = _languageService.Get("Menu.View.FullScreen");
-            ThemeMenuItem.Header = _languageService.Get("Menu.View.Theme");
-            ThemeLightMenuItem.Header = _languageService.Get("Theme.Light");
-            ThemeDarkMenuItem.Header = _languageService.Get("Theme.Dark");
-            ThemeSystemMenuItem.Header = _languageService.Get("Theme.System");
+            // 表示セクション
+            SidebarAlwaysOnTopCheck.Content = _languageService.Get("Menu.View.AlwaysOnTop");
+            SidebarFixWindowSizeCheck.Content = _languageService.Get("Menu.View.FixWindowSize");
+            SidebarShowWaveformCheck.Content = _languageService.Get("Menu.View.ShowWaveform");
+            SidebarShowSpectrumCheck.Content = _languageService.Get("Menu.View.ShowSpectrum");
+            SidebarCenterFixedCheck.Content = _languageService.Get("Menu.View.CenterFixedWaveform");
+            SidebarWaveformRangeButton.Content = _languageService.Get("Menu.View.WaveformRange");
+            SidebarFullScreenButton.Content = _languageService.Get("Menu.View.FullScreen");
+            SidebarThemeLabel.Text = _languageService.Get("Menu.View.Theme");
+            SidebarThemeLightRadio.Content = _languageService.Get("Theme.Light");
+            SidebarThemeDarkRadio.Content = _languageService.Get("Theme.Dark");
+            SidebarThemeAshRadio.Content = _languageService.Get("Theme.Ash");
+            SidebarThemeSystemRadio.Content = _languageService.Get("Theme.System");
 
-            // その他メニュー
-            OtherAboutMenuItem.Header = _languageService.Get("Menu.Other.About");
+            // その他セクション
+            SidebarAboutButton.Content = _languageService.Get("Menu.Other.About");
+            UpdateRecentFilesMenu();
             if (_viewModel?.PlaybackState != null)
                 LoopButton.Content = $"{_languageService.Get("Loop.Label")}: {GetLoopModeDisplayString(_viewModel.PlaybackState.LoopMode)}";
             UpdateWaveformRangeDisplay();
@@ -456,10 +749,11 @@ namespace PotatoMusicPlayer
         private void TaskbarPlayPause_Click(object sender, EventArgs e) => _viewModel.TogglePlayPause();
         private void TaskbarNext_Click(object sender, EventArgs e) => _viewModel.Stop();
 
-        // ========== メニュー: ファイル ==========
+        // ========== サイドバー: ファイル ==========
 
         private async void OpenFile_Click(object sender, RoutedEventArgs e)
         {
+            CloseSidebarAfterAction();
             var dialog = new OpenFileDialog
             {
                 Filter = FileService.GetFileDialogFilter(),
@@ -475,6 +769,7 @@ namespace PotatoMusicPlayer
 
         private void OpenFileLocation_Click(object sender, RoutedEventArgs e)
         {
+            CloseSidebarAfterAction();
             if (_viewModel.CurrentMediaFile != null)
             {
                 // FileService はファイルパスも受け取り選択表示するのでそのまま渡す
@@ -484,6 +779,7 @@ namespace PotatoMusicPlayer
 
         private void OpenInTerminal_Click(object sender, RoutedEventArgs e)
         {
+            CloseSidebarAfterAction();
             if (_viewModel.CurrentMediaFile != null)
             {
                 var folder = FileService.GetParentDirectory(_viewModel.CurrentMediaFile.FilePath);
@@ -493,13 +789,26 @@ namespace PotatoMusicPlayer
 
         private void Exit_Click(object sender, RoutedEventArgs e) => Close();
 
-        // ========== メニュー: 再生 ==========
+        // ========== サイドバー: 再生 ==========
 
-        private void PlayPause_Click(object sender, RoutedEventArgs e) => _viewModel.TogglePlayPause();
-        private void Stop_Click(object sender, RoutedEventArgs e) => _viewModel.Stop();
-        private void GoToStart_Click(object sender, RoutedEventArgs e) => _viewModel.SetPosition(0);
+        private void PlayPause_Click(object sender, RoutedEventArgs e)
+        {
+            CloseSidebarAfterAction();
+            _viewModel.TogglePlayPause();
+        }
+        private void Stop_Click(object sender, RoutedEventArgs e)
+        {
+            CloseSidebarAfterAction();
+            _viewModel.Stop();
+        }
+        private void GoToStart_Click(object sender, RoutedEventArgs e)
+        {
+            CloseSidebarAfterAction();
+            _viewModel.SetPosition(0);
+        }
         private void SeekToTime_Click(object sender, RoutedEventArgs e)
         {
+            CloseSidebarAfterAction();
             if (!InputPromptWindow.TryShow(this, _languageService.Get("Dialog.Seek.Title"), _languageService.Get("Dialog.Seek.Prompt"),
                 FormatTime(_viewModel.PlaybackState.CurrentPosition), out string input,
                 value => TryParsePosition(value, _viewModel.PlaybackState.Duration.TotalSeconds, out _), _languageService))
@@ -510,40 +819,84 @@ namespace PotatoMusicPlayer
             else
                 MessageBox.Show(_languageService.Get("Dialog.Seek.Invalid"), _languageService.Get("Dialog.Seek.Title"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
-        private void SpeedReset_Click(object sender, RoutedEventArgs e) => _viewModel.ResetSpeed();
-        private void SpeedDecrease_Click(object sender, RoutedEventArgs e) => _viewModel.DecreaseSpeed();
-        private void SpeedIncrease_Click(object sender, RoutedEventArgs e) => _viewModel.IncreaseSpeed();
-        private void SkipForward_Click(object sender, RoutedEventArgs e) => _viewModel.SkipForward();
-        private void SkipBackward_Click(object sender, RoutedEventArgs e) => _viewModel.SkipBackward();
+        private void SpeedReset_Click(object sender, RoutedEventArgs e)
+        {
+            CloseSidebarAfterAction();
+            _viewModel.ResetSpeed();
+        }
+        private void SpeedDecrease_Click(object sender, RoutedEventArgs e)
+        {
+            CloseSidebarAfterAction();
+            _viewModel.DecreaseSpeed();
+        }
+        private void SpeedIncrease_Click(object sender, RoutedEventArgs e)
+        {
+            CloseSidebarAfterAction();
+            _viewModel.IncreaseSpeed();
+        }
+        private void SkipForward_Click(object sender, RoutedEventArgs e)
+        {
+            CloseSidebarAfterAction();
+            _viewModel.SkipForward();
+        }
+        private void SkipBackward_Click(object sender, RoutedEventArgs e)
+        {
+            CloseSidebarAfterAction();
+            _viewModel.SkipBackward();
+        }
         private void ToggleLoop_Click(object sender, RoutedEventArgs e) => _viewModel.CycleLoopMode();
 
-        // ========== メニュー: 編集 ==========
+        // ========== サイドバー: 編集 ==========
 
-        private void OpenSettings_Click(object sender, RoutedEventArgs e) => _viewModel.OpenSettings();
-
-        // ========== メニュー: 表示 ==========
-
-        private void AlwaysOnTop_Click(object sender, RoutedEventArgs e)
+        private void OpenSettings_Click(object sender, RoutedEventArgs e)
         {
-            Topmost = AlwaysOnTopMenuItem.IsChecked;
+            CloseSidebarAfterAction();
+            _viewModel.OpenSettings();
         }
 
-        private void FixWindowSize_Click(object sender, RoutedEventArgs e)
+        // ========== サイドバー: 表示 ==========
+
+        private void SidebarAlwaysOnTop_Click(object sender, RoutedEventArgs e)
         {
-            ResizeMode = FixWindowSizeMenuItem.IsChecked ? ResizeMode.NoResize : ResizeMode.CanResizeWithGrip;
+            Topmost = SidebarAlwaysOnTopCheck.IsChecked == true;
         }
 
-        private void ShowWaveform_Click(object sender, RoutedEventArgs e)
+        private void SidebarFixWindowSize_Click(object sender, RoutedEventArgs e)
         {
-            _viewModel.Settings.ShowWaveform = ShowWaveformMenuItem.IsChecked;
-            WaveformContainer.Visibility = ShowWaveformMenuItem.IsChecked ? Visibility.Visible : Visibility.Collapsed;
-            if (ShowWaveformMenuItem.IsChecked)
+            ResizeMode = SidebarFixWindowSizeCheck.IsChecked == true ? ResizeMode.NoResize : ResizeMode.CanResizeWithGrip;
+        }
+
+        private void SidebarShowWaveform_Click(object sender, RoutedEventArgs e)
+        {
+            bool show = SidebarShowWaveformCheck.IsChecked == true;
+            _viewModel.Settings.ShowWaveform = show;
+            WaveformContainer.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            if (show)
                 DrawWaveform();
         }
 
-        private void CenterFixedWaveform_Click(object sender, RoutedEventArgs e)
+        private void SidebarShowSpectrum_Click(object sender, RoutedEventArgs e)
         {
-            _viewModel.Settings.WaveformZoom.CursorMode = CenterFixedWaveformMenuItem.IsChecked
+            bool show = SidebarShowSpectrumCheck.IsChecked == true;
+            _viewModel.Settings.ShowSpectrum = show;
+            ApplySpectrumVisibility();
+        }
+
+        private void ApplySpectrumVisibility()
+        {
+            if (SpectrumContainer == null || SpectrumRow == null)
+                return;
+
+            bool show = _viewModel?.Settings?.ShowSpectrum == true;
+            SpectrumContainer.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            SpectrumRow.Height = show ? new GridLength(60) : new GridLength(0);
+            if (show)
+                DrawSpectrum();
+        }
+
+        private void SidebarCenterFixed_Click(object sender, RoutedEventArgs e)
+        {
+            _viewModel.Settings.WaveformZoom.CursorMode = SidebarCenterFixedCheck.IsChecked == true
                 ? CursorDisplayMode.CenterFixed
                 : CursorDisplayMode.LeftScroll;
             DrawWaveform();
@@ -552,6 +905,7 @@ namespace PotatoMusicPlayer
 
         private void WaveformRange_Click(object sender, RoutedEventArgs e)
         {
+            CloseSidebarAfterAction();
             var zoomState = _viewModel.ZoomState;
             if (zoomState == null || !InputPromptWindow.TryShow(this, _languageService.Get("Dialog.WaveformRange.Title"), _languageService.Get("Dialog.WaveformRange.Prompt"),
                 zoomState.VisibleRangeDuration.ToString("0.##"), out string input,
@@ -581,9 +935,14 @@ namespace PotatoMusicPlayer
 
             var appSettings = _viewModel.Settings;
             var settings = appSettings.WaveformZoom;
-            ShowWaveformMenuItem.IsChecked = appSettings.ShowWaveform;
-            CenterFixedWaveformMenuItem.IsChecked = settings.CursorMode == CursorDisplayMode.CenterFixed;
+            if (SidebarShowWaveformCheck != null)
+                SidebarShowWaveformCheck.IsChecked = appSettings.ShowWaveform;
+            if (SidebarShowSpectrumCheck != null)
+                SidebarShowSpectrumCheck.IsChecked = appSettings.ShowSpectrum;
+            if (SidebarCenterFixedCheck != null)
+                SidebarCenterFixedCheck.IsChecked = settings.CursorMode == CursorDisplayMode.CenterFixed;
             WaveformContainer.Visibility = appSettings.ShowWaveform ? Visibility.Visible : Visibility.Collapsed;
+            ApplySpectrumVisibility();
             MinimapContainer.Visibility = settings.ShowMinimap ? Visibility.Visible : Visibility.Collapsed;
             int height = Math.Clamp(settings.MinimapHeight, 8, 64);
             MinimapRow.Height = settings.ShowMinimap ? new GridLength(height + 2) : new GridLength(0);
@@ -647,9 +1006,10 @@ namespace PotatoMusicPlayer
             return TryParsePlaybackTime(input, out seconds) && seconds <= totalDuration;
         }
 
-        private void ThemeMenuItem_Click(object sender, RoutedEventArgs e)
+        private void SidebarTheme_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is not MenuItem item || !Enum.TryParse(item.Tag?.ToString(), out ThemeMode mode))
+            string tag = (sender as FrameworkElement)?.Tag?.ToString();
+            if (!Enum.TryParse(tag, out ThemeMode mode))
                 return;
 
             var settings = _viewModel.Settings;
@@ -661,12 +1021,13 @@ namespace PotatoMusicPlayer
 
         private void UpdateThemeMenuSelection(ThemeMode mode)
         {
-            if (ThemeLightMenuItem == null)
+            if (SidebarThemeLightRadio == null)
                 return;
 
-            ThemeLightMenuItem.IsChecked = mode == ThemeMode.Light;
-            ThemeDarkMenuItem.IsChecked = mode == ThemeMode.Dark;
-            ThemeSystemMenuItem.IsChecked = mode == ThemeMode.System;
+            SidebarThemeLightRadio.IsChecked = mode == ThemeMode.Light;
+            SidebarThemeDarkRadio.IsChecked = mode == ThemeMode.Dark;
+            SidebarThemeAshRadio.IsChecked = mode == ThemeMode.Ash;
+            SidebarThemeSystemRadio.IsChecked = mode == ThemeMode.System;
         }
 
         private void ApplyAudioSettingsToUi()
@@ -688,6 +1049,7 @@ namespace PotatoMusicPlayer
 
         private void FullScreen_Click(object sender, RoutedEventArgs e)
         {
+            CloseSidebarAfterAction();
             if (WindowStyle == WindowStyle.None && WindowState == WindowState.Maximized)
             {
                 WindowState = WindowState.Normal;
@@ -698,10 +1060,11 @@ namespace PotatoMusicPlayer
             }
         }
 
-        // ========== メニュー: その他 ==========
+        // ========== サイドバー: その他 ==========
 
         private void About_Click(object sender, RoutedEventArgs e)
         {
+            CloseSidebarAfterAction();
             MessageBox.Show(
                 $"{Utils.Constants.AppName}\nVersion {Utils.Constants.AppVersion}",
                 "バージョン情報",
@@ -753,6 +1116,69 @@ namespace PotatoMusicPlayer
         }
 
         // ========== 音量スライダー ==========
+        //
+        // SHIFT+ドラッグはカーソルより遅く(0.25倍)、CTRL+ドラッグは5%刻みで動く。
+        // 修飾キーなしは通常速度のドラッグ、クリックのみはその位置へジャンプする。
+
+        private void VolumeSlider_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            _isDraggingVolume = true;
+            _volumeDragMoved = false;
+            _volumeDragStartX = e.GetPosition(VolumeSlider).X;
+            _volumeDragStartValue = VolumeSlider.Value;
+            VolumeSlider.CaptureMouse();
+            e.Handled = true;
+        }
+
+        private void VolumeSlider_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_isDraggingVolume || e.LeftButton != MouseButtonState.Pressed || VolumeSlider.ActualWidth <= 0)
+                return;
+
+            double currentX = e.GetPosition(VolumeSlider).X;
+            if (!_volumeDragMoved &&
+                Math.Abs(currentX - _volumeDragStartX) < SystemParameters.MinimumHorizontalDragDistance)
+                return;
+
+            _volumeDragMoved = true;
+            VolumeSlider.Value = CalculateVolumeDragValue(currentX);
+            e.Handled = true;
+        }
+
+        private void VolumeSlider_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_isDraggingVolume)
+                return;
+
+            if (!_volumeDragMoved)
+            {
+                // クリックのみの場合はその位置へジャンプする(CTRL時は5%刻み)。
+                VolumeSlider.Value = CalculateVolumeDragValue(e.GetPosition(VolumeSlider).X);
+            }
+
+            _isDraggingVolume = false;
+            VolumeSlider.ReleaseMouseCapture();
+            e.Handled = true;
+        }
+
+        private void VolumeSlider_LostMouseCapture(object sender, MouseEventArgs e)
+        {
+            _isDraggingVolume = false;
+        }
+
+        private double CalculateVolumeDragValue(double currentX)
+        {
+            double width = VolumeSlider.ActualWidth;
+            if (width <= 0)
+                return VolumeSlider.Value;
+
+            double range = VolumeSlider.Maximum - VolumeSlider.Minimum;
+            double factor = (Keyboard.Modifiers & ModifierKeys.Shift) != ModifierKeys.None ? 0.25 : 1.0;
+            double value = _volumeDragStartValue + (currentX - _volumeDragStartX) / width * range * factor;
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != ModifierKeys.None)
+                value = Math.Round(value / 5.0) * 5.0;
+            return Math.Clamp(value, VolumeSlider.Minimum, VolumeSlider.Maximum);
+        }
 
         private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
@@ -808,6 +1234,13 @@ namespace PotatoMusicPlayer
 
         private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Escape && _isSidebarOpen)
+            {
+                CloseSidebar();
+                e.Handled = true;
+                return;
+            }
+
             // NOTE: これはアプリがフォーカスされている場合のホットキー。
             Key key = e.Key == Key.System ? e.SystemKey : e.Key;
             var modifiers = Keyboard.Modifiers;
@@ -844,8 +1277,8 @@ namespace PotatoMusicPlayer
                 case HotKeyAction.SpeedReset: _viewModel.ResetSpeed(); break;
                 case HotKeyAction.ToggleLoopMode: _viewModel.CycleLoopMode(); break;
                 case HotKeyAction.ToggleWaveform:
-                    ShowWaveformMenuItem.IsChecked = !ShowWaveformMenuItem.IsChecked;
-                    ShowWaveform_Click(this, new RoutedEventArgs());
+                    SidebarShowWaveformCheck.IsChecked = !(SidebarShowWaveformCheck.IsChecked == true);
+                    SidebarShowWaveform_Click(this, new RoutedEventArgs());
                     break;
                 case HotKeyAction.WaveformZoomIn: _viewModel.ZoomIn(); break;
                 case HotKeyAction.WaveformZoomOut: _viewModel.ZoomOut(); break;

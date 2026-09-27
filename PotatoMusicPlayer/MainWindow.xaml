@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="Potato Music Player"
-        Width="900" Height="200"
-        MinWidth="500" MinHeight="230"
+        Width="900" Height="480"
+        MinWidth="500" MinHeight="440"
         Background="{DynamicResource SurfaceWindowBrush}"
         WindowStyle="None"
         ResizeMode="CanResizeWithGrip"
@@ -44,213 +44,344 @@
     </Window.TaskbarItemInfo>
 
     <Border BorderBrush="{DynamicResource BorderDefaultBrush}" BorderThickness="1">
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <!-- カスタムタイトルバー + メニュー -->
-                <RowDefinition Height="Auto"/>
-                <!-- メタデータ表示 -->
-                <RowDefinition x:Name="WaveformRow" Height="56"/>
-                <!-- 波形表示 -->
-                <RowDefinition Height="Auto"/>
-                <!-- トランスポートコントロール -->
-                <RowDefinition Height="*"/>
-                <!-- 伸縮スペーサー(上側は上に詰め、再生バーは下端に固定) -->
-                <RowDefinition Height="Auto"/>
-                <!-- 時間 / 再生バー -->
-            </Grid.RowDefinitions>
-
-
-            <!-- ============ タイトルバー(メニュー統合) ============ -->
-            <Grid Grid.Row="0" Background="{DynamicResource SurfacePanelBrush}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <Menu Grid.Column="1" Background="Transparent" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11"
-                      VerticalAlignment="Center" Padding="4,2" HorizontalAlignment="Right">
-                    <Menu.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal"/>
-                        </ItemsPanelTemplate>
-                    </Menu.ItemsPanel>
-                    <MenuItem x:Name="FileMenuItem" Header="ファイル">
-                        <MenuItem x:Name="FileOpenMenuItem" Header="開く..." Click="OpenFile_Click"/>
-                        <MenuItem x:Name="FileOpenLocationMenuItem" Header="ファイルの場所を開く" Click="OpenFileLocation_Click"/>
-                        <MenuItem x:Name="FileOpenTerminalMenuItem" Header="ターミナルで開く" Click="OpenInTerminal_Click"/>
-                        <Separator/>
-                        <MenuItem x:Name="RecentFilesMenuItem" Header="最近使ったファイル"/>
-                        <Separator/>
-                        <MenuItem x:Name="FileSettingsMenuItem" Header="設定..." Click="OpenSettings_Click"/>
-                        <MenuItem x:Name="FileExitMenuItem" Header="終了" Click="Exit_Click"/>
-                    </MenuItem>
-                    <MenuItem x:Name="PlaybackMenuItem" Header="再生">
-                        <MenuItem x:Name="PlaybackPlayPauseMenuItem" Header="再生/一時停止" Click="PlayPause_Click"/>
-                        <MenuItem x:Name="PlaybackStopMenuItem" Header="停止" Click="Stop_Click"/>
-                        <Separator/>
-                        <MenuItem x:Name="PlaybackGoToStartMenuItem" Header="最初へ戻る" Click="GoToStart_Click"/>
-                        <MenuItem x:Name="PlaybackSeekToTimeMenuItem" Header="指定時刻へ移動..." Click="SeekToTime_Click"/>
-                        <Separator/>
-                        <MenuItem x:Name="PlaybackSpeedResetMenuItem" Header="速度: 100%にセット" Click="SpeedReset_Click"/>
-                        <MenuItem x:Name="PlaybackSpeedDecreaseMenuItem" Header="速度: 5%遅く" Click="SpeedDecrease_Click"/>
-                        <MenuItem x:Name="PlaybackSpeedIncreaseMenuItem" Header="速度: 5%速く" Click="SpeedIncrease_Click"/>
-                        <Separator/>
-                        <MenuItem x:Name="PlaybackSkipForwardMenuItem" Header="5秒スキップ" Click="SkipForward_Click"/>
-                        <MenuItem x:Name="PlaybackSkipBackwardMenuItem" Header="5秒戻る" Click="SkipBackward_Click"/>
-                    </MenuItem>
-                    <MenuItem x:Name="ViewMenuItem" Header="表示">
-                        <MenuItem x:Name="AlwaysOnTopMenuItem" Header="常に最前面" IsCheckable="True" Click="AlwaysOnTop_Click"/>
-                        <MenuItem x:Name="FixWindowSizeMenuItem" Header="ウィンドウサイズ固定" IsCheckable="True" Click="FixWindowSize_Click"/>
-                        <MenuItem x:Name="WaveformMenuItem" Header="波形">
-                            <MenuItem x:Name="ShowWaveformMenuItem" Header="波形を表示" IsCheckable="True" IsChecked="True" Click="ShowWaveform_Click"/>
-                            <MenuItem x:Name="CenterFixedWaveformMenuItem" Header="再生ヘッドを中央に固定" IsCheckable="True" Click="CenterFixedWaveform_Click"/>
-                            <Separator/>
-                            <MenuItem x:Name="WaveformRangeMenuItem" Header="範囲を指定して拡大..." Click="WaveformRange_Click"/>
-                        </MenuItem>
-                        <Separator/>
-                        <MenuItem x:Name="ThemeMenuItem" Header="モード">
-                            <MenuItem x:Name="ThemeLightMenuItem" Header="ライト" Tag="Light" IsCheckable="True" Click="ThemeMenuItem_Click"/>
-                            <MenuItem x:Name="ThemeDarkMenuItem" Header="ダーク" Tag="Dark" IsCheckable="True" Click="ThemeMenuItem_Click"/>
-                            <MenuItem x:Name="ThemeSystemMenuItem" Header="システム" Tag="System" IsCheckable="True" Click="ThemeMenuItem_Click"/>
-                        </MenuItem>
-                        <MenuItem x:Name="ViewFullScreenMenuItem" Header="全画面表示" Click="FullScreen_Click"/>
-                    </MenuItem>
-                    <MenuItem x:Name="OtherMenuItem" Header="その他">
-                        <MenuItem x:Name="OtherAboutMenuItem" Header="バージョン情報" Click="About_Click"/>
-                    </MenuItem>
-                </Menu>
-                <!-- アイコン領域はドラッグ可能なタイトルバー領域としても使用する -->
-                <Border Grid.Column="0" Padding="8,0,6,0" Background="Transparent"
-                        MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Image Source="pack://application:,,,/Resources/Icons/potato.png" Width="16" Height="16"
-                               Stretch="Uniform" SnapsToDevicePixels="True"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- メニューや操作ボタンと重ならないドラッグ専用領域 -->
-                <Border Grid.Column="2" Background="Transparent"
-                        MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"/>
-
-                <!-- 最小化・閉じるボタン -->
-                <StackPanel Grid.Column="3" Orientation="Horizontal">
-                    <Button Content="—" Width="32" Height="26" Style="{StaticResource WindowControlButtonStyle}" Background="Transparent" Foreground="{DynamicResource TextPrimaryBrush}"
-                            BorderThickness="0" Click="Minimize_Click"/>
-                    <Button Content="✕" Width="32" Height="26" Style="{StaticResource CloseButtonStyle}" Background="Transparent" Foreground="{DynamicResource TextPrimaryBrush}"
-                            BorderThickness="0" Click="Close_Click"/>
-                </StackPanel>
-            </Grid>
-
-            <!-- ============ メタデータ表示 ============ -->
-            <StackPanel Grid.Row="1" Margin="8,4,8,2">
-                        <TextBlock x:Name="TitleText" Text="再生するファイルがありません" Style="{StaticResource TitleTextStyle}"/>
-                <TextBlock x:Name="ArtistText" Text="" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
-            </StackPanel>
-
-            <!-- ============ 波形表示エリア ============ -->
-            <Grid Grid.Row="2" Margin="8,2,8,2">
-                <!-- 時刻表示と同じ列幅を確保し、波形の左右端をシークバーに揃える -->
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="00:00" Foreground="Transparent"
-                           FontFamily="Consolas" FontSize="10" Margin="0,0,6,0"/>
-                <Border x:Name="WaveformContainer" Grid.Column="1"
-                        Background="{DynamicResource WaveformBackgroundBrush}" CornerRadius="2">
-                    <Grid>
-                <Canvas x:Name="WaveformCanvas" Background="Transparent" ClipToBounds="True"
-                                PreviewMouseWheel="WaveformCanvas_PreviewMouseWheel"
-                                PreviewMouseLeftButtonDown="WaveformCanvas_PreviewMouseLeftButtonDown"
-                                PreviewMouseMove="WaveformCanvas_PreviewMouseMove"
-                                PreviewMouseLeftButtonUp="WaveformCanvas_PreviewMouseLeftButtonUp"
-                                LostMouseCapture="WaveformCanvas_LostMouseCapture"
-                                SizeChanged="WaveformCanvas_SizeChanged"/>
-                        <TextBlock x:Name="WaveformProgressText" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Visibility="Collapsed" IsHitTestVisible="False"/>
-                    </Grid>
-                </Border>
-                <TextBlock x:Name="WaveformRangeText" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,-13,0,0"
-                           Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10" Cursor="Hand"
-                           MouseLeftButtonUp="WaveformRangeText_MouseLeftButtonUp"/>
-                <TextBlock Grid.Column="2" Text="00:00" Foreground="Transparent"
-                           FontFamily="Consolas" FontSize="10" Margin="6,0,0,0"/>
-            </Grid>
-
-            <!-- ============ トランスポートコントロール ============ -->
-            <Grid Grid.Row="5" Margin="8,2,8,2">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <!-- 左: 再生系ボタン -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal">
-                    <Button x:Name="PrevButton" Content="⏮" Style="{StaticResource TransportButtonStyle}" Click="GoToStart_Click"/>
-                    <Button x:Name="PlayPauseButton" Content="▶" Style="{StaticResource TransportButtonStyle}" Click="PlayPause_Click"/>
-                    <Button x:Name="StopButton" Content="⏹" Style="{StaticResource TransportButtonStyle}" Click="Stop_Click"/>
-                    <Button x:Name="NextButton" Content="⏭" Style="{StaticResource TransportButtonStyle}" Click="Stop_Click"/>
-                </StackPanel>
-
-                <!-- 中央: 速度・ループ表示 -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <TextBlock x:Name="SpeedText" Text="1.0x" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10" Margin="4,0" VerticalAlignment="Center"/>
-                    <Button x:Name="LoopButton" Content="Loop: OFF" Style="{StaticResource SettingsInputButtonStyle}" Background="Transparent" Foreground="{DynamicResource TextSecondaryBrush}"
-                            BorderBrush="Transparent" BorderThickness="1" FontSize="10" Padding="4,1" Click="ToggleLoop_Click"/>
-                </StackPanel>
-
-                <!-- 右: 音量 -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
-                            MouseWheel="VolumeArea_MouseWheel">
-                    <Image x:Name="VolumeIcon" Source="pack://application:,,,/Resources/Icons/speaker_dark_3.png"
-                           Width="16" Height="16" Stretch="Uniform" Margin="0,0,4,0"
-                           ToolTip="ミュート切り替え" Cursor="Hand"
-                           MouseLeftButtonUp="VolumeIcon_MouseLeftButtonUp"/>
-                    <Slider x:Name="VolumeSlider" Width="70" Height="18" Minimum="0" Maximum="200" Value="80"
-                            VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged"/>
-                    <TextBlock x:Name="VolumeText" Text="80%" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10" Margin="6,0,0,0" VerticalAlignment="Center" Width="26" TextAlignment="Right"/>
-                </StackPanel>
-            </Grid>
-
-            <!-- ============ 時間表示 / 再生バー(下端に固定) ============ -->
-            <Grid Grid.Row="3" Margin="8,2,8,0">
+        <Grid x:Name="RootGrid">
+            <!-- ============ メインコンテンツ(サイドバーオープン時はぼかし+減光) ============ -->
+            <Grid x:Name="MainContentGrid">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition x:Name="MinimapRow" Height="18"/>
+                    <!-- カスタムタイトルバー -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- メタデータ表示 -->
+                    <RowDefinition x:Name="WaveformRow" Height="192"/>
+                    <!-- 波形表示(縦に拡大) -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- 時間 / 再生バー -->
+                    <RowDefinition x:Name="SpectrumRow" Height="60"/>
+                    <!-- スペクトラムアナライザ -->
+                    <RowDefinition Height="*"/>
+                    <!-- 伸縮スペーサー -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- トランスポートコントロール(下端に固定) -->
                 </Grid.RowDefinitions>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
 
-                <TextBlock x:Name="CurrentTimeText" Grid.Row="0" Grid.Column="0" Text="00:00" Foreground="{DynamicResource TextSecondaryBrush}"
-                           FontFamily="Consolas" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
 
-                <Slider x:Name="SeekBar" Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="100" Value="0"
-                        VerticalAlignment="Center"
-                        PreviewMouseLeftButtonDown="SeekBar_PreviewMouseLeftButtonDown"
-                        PreviewMouseMove="SeekBar_PreviewMouseMove"
-                        PreviewMouseLeftButtonUp="SeekBar_PreviewMouseLeftButtonUp"/>
+                <!-- ============ タイトルバー(Web風: ハンバーガー + ドラッグ領域 + 窓ボタン) ============ -->
+                <!-- 背景差し替え式にするため Grid を MaterialAppBarBorderStyle の Border で包む。
+                     将来のぼかし導入時はこの Border の Background/Effect だけ変える。 -->
+                <Border Grid.Row="0" Style="{StaticResource MaterialAppBarBorderStyle}"
+                        Background="{DynamicResource TitleBarGradientBrush}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-                <TextBlock x:Name="TotalTimeText" Grid.Row="0" Grid.Column="2" Text="00:00" Foreground="{DynamicResource TextSecondaryBrush}"
-                           FontFamily="Consolas" FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                        <!-- サイドバー開閉ボタン -->
+                        <Button x:Name="MenuToggleButton" Grid.Column="0" Content="☰" Width="34" Height="26"
+                                Style="{StaticResource WindowControlButtonStyle}" Background="Transparent"
+                                Foreground="{DynamicResource TextPrimaryBrush}" BorderThickness="0" FontSize="13"
+                                VerticalAlignment="Center" Click="MenuToggle_Click"/>
 
-                <Border x:Name="MinimapContainer" Grid.Row="1" Grid.Column="1" Margin="0,2,0,0"
-                        Background="{DynamicResource SurfaceRaisedBrush}" CornerRadius="2" ClipToBounds="True">
-                    <Canvas x:Name="MinimapCanvas" Background="Transparent" ClipToBounds="True"
-                            PreviewMouseLeftButtonDown="MinimapCanvas_PreviewMouseLeftButtonDown"
-                            PreviewMouseMove="MinimapCanvas_PreviewMouseMove"
-                            PreviewMouseLeftButtonUp="MinimapCanvas_PreviewMouseLeftButtonUp"
-                            LostMouseCapture="MinimapCanvas_LostMouseCapture"
-                            SizeChanged="MinimapCanvas_SizeChanged"/>
+                        <!-- アイコン領域はドラッグ可能なタイトルバー領域としても使用する -->
+                        <Border Grid.Column="1" Padding="8,0,6,0" Background="Transparent"
+                                MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Image Source="pack://application:,,,/Resources/Icons/potato.png" Width="16" Height="16"
+                                       Stretch="Uniform" SnapsToDevicePixels="True"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 操作ボタンと重ならないドラッグ専用領域 -->
+                        <Border Grid.Column="2" Background="Transparent"
+                                MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"/>
+
+                        <!-- 最小化・閉じるボタン -->
+                        <StackPanel Grid.Column="3" Orientation="Horizontal">
+                            <Button Content="—" Width="32" Height="26" Style="{StaticResource WindowControlButtonStyle}" Background="Transparent" Foreground="{DynamicResource TextPrimaryBrush}"
+                                    BorderThickness="0" Click="Minimize_Click"/>
+                            <Button Content="✕" Width="32" Height="26" Style="{StaticResource CloseButtonStyle}" Background="Transparent" Foreground="{DynamicResource TextPrimaryBrush}"
+                                    BorderThickness="0" Click="Close_Click"/>
+                        </StackPanel>
+                    </Grid>
                 </Border>
+
+                <!-- ============ メタデータ表示 ============ -->
+                <StackPanel Grid.Row="1" Margin="8,4,8,2">
+                    <TextBlock x:Name="TitleText" Text="再生するファイルがありません" Style="{StaticResource TitleTextStyle}"/>
+                    <TextBlock x:Name="ArtistText" Text="" Style="{StaticResource SubTextStyle}"/>
+                </StackPanel>
+
+                <!-- ============ 波形表示エリア ============ -->
+                <Grid Grid.Row="2" Margin="8,2,8,2">
+                    <!-- 時刻表示と同じ列幅を確保し、波形の左右端をシークバーに揃える -->
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="00:00" Foreground="Transparent"
+                               FontFamily="Consolas" FontSize="10" Margin="0,0,6,0"/>
+                    <Border x:Name="WaveformContainer" Grid.Column="1"
+                            Background="{DynamicResource WaveformBackgroundGradientBrush}"
+                            CornerRadius="{StaticResource MaterialCornerSmall}" ClipToBounds="True">
+                        <Grid>
+                            <Canvas x:Name="WaveformCanvas" Background="Transparent" ClipToBounds="True"
+                                    PreviewMouseWheel="WaveformCanvas_PreviewMouseWheel"
+                                    PreviewMouseLeftButtonDown="WaveformCanvas_PreviewMouseLeftButtonDown"
+                                    PreviewMouseMove="WaveformCanvas_PreviewMouseMove"
+                                    PreviewMouseLeftButtonUp="WaveformCanvas_PreviewMouseLeftButtonUp"
+                                    LostMouseCapture="WaveformCanvas_LostMouseCapture"
+                                    SizeChanged="WaveformCanvas_SizeChanged"/>
+                            <TextBlock x:Name="WaveformProgressText" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Visibility="Collapsed" IsHitTestVisible="False"/>
+                        </Grid>
+                    </Border>
+                    <TextBlock x:Name="WaveformRangeText" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,-13,0,0"
+                               Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10" Cursor="Hand"
+                               MouseLeftButtonUp="WaveformRangeText_MouseLeftButtonUp"/>
+                    <TextBlock Grid.Column="2" Text="00:00" Foreground="Transparent"
+                               FontFamily="Consolas" FontSize="10" Margin="6,0,0,0"/>
+                </Grid>
+
+                <!-- ============ 時間表示 / 再生バー ============ -->
+                <Grid Grid.Row="3" Margin="8,2,8,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition x:Name="MinimapRow" Height="18"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock x:Name="CurrentTimeText" Grid.Row="0" Grid.Column="0" Text="00:00" Style="{StaticResource TimeTextStyle}"
+                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+
+                    <Slider x:Name="SeekBar" Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="100" Value="0"
+                            Style="{StaticResource MaterialSliderStyle}"
+                            VerticalAlignment="Center"
+                            PreviewMouseLeftButtonDown="SeekBar_PreviewMouseLeftButtonDown"
+                            PreviewMouseMove="SeekBar_PreviewMouseMove"
+                            PreviewMouseLeftButtonUp="SeekBar_PreviewMouseLeftButtonUp"/>
+
+                    <TextBlock x:Name="TotalTimeText" Grid.Row="0" Grid.Column="2" Text="00:00" Style="{StaticResource TimeTextStyle}"
+                               VerticalAlignment="Center" Margin="6,0,0,0"/>
+
+                    <Border x:Name="MinimapContainer" Grid.Row="1" Grid.Column="1" Margin="0,2,0,0"
+                            Background="{DynamicResource MinimapBackgroundGradientBrush}"
+                            CornerRadius="{StaticResource MaterialCornerExtraSmall}" ClipToBounds="True">
+                        <Canvas x:Name="MinimapCanvas" Background="Transparent" ClipToBounds="True"
+                                PreviewMouseLeftButtonDown="MinimapCanvas_PreviewMouseLeftButtonDown"
+                                PreviewMouseMove="MinimapCanvas_PreviewMouseMove"
+                                PreviewMouseLeftButtonUp="MinimapCanvas_PreviewMouseLeftButtonUp"
+                                LostMouseCapture="MinimapCanvas_LostMouseCapture"
+                                SizeChanged="MinimapCanvas_SizeChanged"/>
+                    </Border>
+                </Grid>
+
+                <!-- ============ スペクトラムアナライザ(画面下) ============ -->
+                <Grid Grid.Row="4" Margin="8,4,8,2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="00:00" Foreground="Transparent"
+                               FontFamily="Consolas" FontSize="10" Margin="0,0,6,0"/>
+                    <Border x:Name="SpectrumContainer" Grid.Column="1"
+                            Background="{DynamicResource WaveformBackgroundGradientBrush}"
+                            CornerRadius="{StaticResource MaterialCornerSmall}" ClipToBounds="True">
+                        <Canvas x:Name="SpectrumCanvas" Background="Transparent" ClipToBounds="True"
+                                IsHitTestVisible="False"
+                                SizeChanged="SpectrumCanvas_SizeChanged"/>
+                    </Border>
+                    <TextBlock Grid.Column="2" Text="00:00" Foreground="Transparent"
+                               FontFamily="Consolas" FontSize="10" Margin="6,0,0,0"/>
+                </Grid>
+
+                <!-- ============ トランスポートコントロール(下端に固定) ============ -->
+                <Grid Grid.Row="6" Margin="8,2,8,2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 左: 速度・ループ表示 -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <TextBlock x:Name="SpeedText" Text="1.0x" Style="{StaticResource TimeTextStyle}" Margin="4,0" VerticalAlignment="Center"/>
+                        <Button x:Name="LoopButton" Content="Loop: OFF" Style="{StaticResource SettingsInputButtonStyle}" Background="Transparent" Foreground="{DynamicResource TextSecondaryBrush}"
+                                BorderBrush="Transparent" BorderThickness="1" FontSize="10" Padding="4,1" Click="ToggleLoop_Click"/>
+                    </StackPanel>
+
+                    <!-- 中央: 再生系ボタン(図形描画アイコン) -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Button x:Name="PrevButton" Style="{StaticResource MaterialFlatButtonStyle}" Margin="4,0" Click="GoToStart_Click">
+                            <Path Data="M2,2 H4.5 V14 H2 Z M13.5,2 L6,8 L13.5,14 Z" Width="18" Height="18" Stretch="Uniform"
+                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                        </Button>
+                        <Button x:Name="PlayPauseButton" Style="{StaticResource MaterialFilledButtonStyle}" Margin="8,0"
+                                Background="{DynamicResource AccentGradientBrush}" Effect="{DynamicResource AccentGlowEffect}"
+                                Click="PlayPause_Click">
+                            <Grid Width="22" Height="22">
+                                <Path x:Name="PlayIconPath" Data="M4,2 L13,8 L4,14 Z" Stretch="Uniform"
+                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                      RenderTransformOrigin="0.5,0.5" Opacity="1">
+                                    <Path.RenderTransform>
+                                        <ScaleTransform x:Name="PlayIconScale" ScaleX="1" ScaleY="1"/>
+                                    </Path.RenderTransform>
+                                </Path>
+                                <Path x:Name="PauseIconPath" Data="M3.5,2 H6.5 V14 H3.5 Z M9.5,2 H12.5 V14 H9.5 Z" Stretch="Uniform"
+                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                      RenderTransformOrigin="0.5,0.5" Opacity="0">
+                                    <Path.RenderTransform>
+                                        <ScaleTransform x:Name="PauseIconScale" ScaleX="0.7" ScaleY="0.7"/>
+                                    </Path.RenderTransform>
+                                </Path>
+                            </Grid>
+                        </Button>
+                        <Button x:Name="StopButton" Style="{StaticResource MaterialFlatButtonStyle}" Margin="4,0" Click="Stop_Click">
+                            <Path Data="M3.5,3.5 H12.5 V12.5 H3.5 Z" Width="16" Height="16" Stretch="Uniform"
+                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                        </Button>
+                        <Button x:Name="NextButton" Style="{StaticResource MaterialFlatButtonStyle}" Margin="4,0" Click="Stop_Click">
+                            <Path Data="M11.5,2 H14 V14 H11.5 Z M2.5,2 L10,8 L2.5,14 Z" Width="18" Height="18" Stretch="Uniform"
+                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- 右: 音量 -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
+                                MouseWheel="VolumeArea_MouseWheel">
+                        <Image x:Name="VolumeIcon" Source="pack://application:,,,/Resources/Icons/speaker_dark_3.png"
+                               Width="16" Height="16" Stretch="Uniform" Margin="0,0,4,0"
+                               ToolTip="ミュート切り替え" Cursor="Hand"
+                               MouseLeftButtonUp="VolumeIcon_MouseLeftButtonUp"/>
+                        <Slider x:Name="VolumeSlider" Width="70" Height="18" Minimum="0" Maximum="200" Value="80"
+                                Style="{StaticResource MaterialSliderStyle}"
+                                VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged"
+                                PreviewMouseLeftButtonDown="VolumeSlider_PreviewMouseLeftButtonDown"
+                                PreviewMouseMove="VolumeSlider_PreviewMouseMove"
+                                PreviewMouseLeftButtonUp="VolumeSlider_PreviewMouseLeftButtonUp"
+                                LostMouseCapture="VolumeSlider_LostMouseCapture"/>
+                        <TextBlock x:Name="VolumeText" Text="80%" Style="{StaticResource TimeTextStyle}" Margin="6,0,0,0" VerticalAlignment="Center" Width="26" TextAlignment="Right"/>
+                    </StackPanel>
+                </Grid>
             </Grid>
+
+            <!-- ============ サイドバー用ディムオーバーレイ(背景減光・クリックで閉じる) ============ -->
+            <Border x:Name="SidebarDimOverlay" Background="{DynamicResource SidebarDimBrush}" Opacity="0" Visibility="Collapsed"
+                    MouseLeftButtonUp="SidebarDimOverlay_MouseLeftButtonUp" Panel.ZIndex="90"/>
+
+            <!-- ============ サイドバー(Web風ドロワー: 左からスライド) ============ -->
+            <Border x:Name="SidebarPanel" Width="280" HorizontalAlignment="Left" VerticalAlignment="Stretch"
+                    Background="{DynamicResource SurfacePanelBrush}"
+                    BorderBrush="{DynamicResource BorderDefaultBrush}" BorderThickness="0,0,1,0"
+                    Visibility="Collapsed" Panel.ZIndex="100"
+                    Effect="{StaticResource MaterialElevation3Effect}">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="SidebarSlide" X="-280"/>
+                </Border.RenderTransform>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- ドロワーヘッダー -->
+                    <Border Grid.Row="0" Background="{DynamicResource TitleBarGradientBrush}" Padding="12,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="SidebarMenuHeaderText" Grid.Column="0" Text="メニュー"
+                                       Style="{StaticResource TitleTextStyle}" VerticalAlignment="Center"/>
+                            <Button x:Name="SidebarCloseButton" Grid.Column="1" Content="✕" Width="28" Height="24"
+                                    Style="{StaticResource WindowControlButtonStyle}" Background="Transparent"
+                                    Foreground="{DynamicResource TextPrimaryBrush}" BorderThickness="0"
+                                    Click="SidebarCloseButton_Click"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- ドロワー本体(既定は全カテゴリー閉) -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="8,8,8,12">
+                        <StackPanel>
+                            <Expander x:Name="SidebarFileExpander" Header="ファイル" IsExpanded="False"
+                                      Style="{StaticResource SidebarSectionExpanderStyle}"
+                                      Foreground="{DynamicResource TextPrimaryBrush}">
+                                <StackPanel>
+                                    <Button x:Name="SidebarOpenButton" Content="開く..." Click="OpenFile_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <Button x:Name="SidebarOpenLocationButton" Content="ファイルの場所を開く" Click="OpenFileLocation_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <Button x:Name="SidebarOpenTerminalButton" Content="ターミナルで開く" Click="OpenInTerminal_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <TextBlock x:Name="SidebarRecentHeader" Text="最近使ったファイル" Margin="12,8,12,2"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
+                                    <StackPanel x:Name="SidebarRecentFilesPanel" Margin="4,0"/>
+                                    <Button x:Name="SidebarClearRecentButton" Content="履歴をクリア" Click="ClearRecentFiles_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <Button x:Name="SidebarSettingsButton" Content="設定..." Click="OpenSettings_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <Button x:Name="SidebarExitButton" Content="終了" Click="Exit_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                </StackPanel>
+                            </Expander>
+
+                            <Expander x:Name="SidebarPlaybackExpander" Header="再生" IsExpanded="False"
+                                      Style="{StaticResource SidebarSectionExpanderStyle}"
+                                      Foreground="{DynamicResource TextPrimaryBrush}">
+                                <StackPanel>
+                                    <Button x:Name="SidebarPlayPauseButton" Content="再生/一時停止" Click="PlayPause_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <Button x:Name="SidebarStopButton" Content="停止" Click="Stop_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <Button x:Name="SidebarGoToStartButton" Content="最初へ戻る" Click="GoToStart_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <Button x:Name="SidebarSeekToTimeButton" Content="指定時刻へ移動..." Click="SeekToTime_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <Button x:Name="SidebarSpeedResetButton" Content="速度: 100%にセット" Click="SpeedReset_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <Button x:Name="SidebarSpeedDecreaseButton" Content="速度: 5%遅く" Click="SpeedDecrease_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <Button x:Name="SidebarSpeedIncreaseButton" Content="速度: 5%速く" Click="SpeedIncrease_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <Button x:Name="SidebarSkipForwardButton" Content="5秒スキップ" Click="SkipForward_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <Button x:Name="SidebarSkipBackwardButton" Content="5秒戻る" Click="SkipBackward_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                </StackPanel>
+                            </Expander>
+
+                            <Expander x:Name="SidebarViewExpander" Header="表示" IsExpanded="False"
+                                      Style="{StaticResource SidebarSectionExpanderStyle}"
+                                      Foreground="{DynamicResource TextPrimaryBrush}">
+                                <StackPanel>
+                                    <CheckBox x:Name="SidebarAlwaysOnTopCheck" Content="常に最前面" Margin="12,4"
+                                              Foreground="{DynamicResource TextPrimaryBrush}" Click="SidebarAlwaysOnTop_Click"/>
+                                    <CheckBox x:Name="SidebarFixWindowSizeCheck" Content="ウィンドウサイズ固定" Margin="12,4"
+                                              Foreground="{DynamicResource TextPrimaryBrush}" Click="SidebarFixWindowSize_Click"/>
+                                    <CheckBox x:Name="SidebarShowWaveformCheck" Content="波形を表示" Margin="12,4"
+                                              Foreground="{DynamicResource TextPrimaryBrush}" Click="SidebarShowWaveform_Click"/>
+                                    <CheckBox x:Name="SidebarShowSpectrumCheck" Content="スペクトラムを表示" Margin="12,4"
+                                              Foreground="{DynamicResource TextPrimaryBrush}" Click="SidebarShowSpectrum_Click"/>
+                                    <CheckBox x:Name="SidebarCenterFixedCheck" Content="再生ヘッドを中央に固定" Margin="12,4"
+                                              Foreground="{DynamicResource TextPrimaryBrush}" Click="SidebarCenterFixed_Click"/>
+                                    <Button x:Name="SidebarWaveformRangeButton" Content="範囲を指定して拡大..." Click="WaveformRange_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <Button x:Name="SidebarFullScreenButton" Content="全画面表示" Click="FullScreen_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                    <TextBlock x:Name="SidebarThemeLabel" Text="モード" Margin="12,8,12,2"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
+                                    <RadioButton x:Name="SidebarThemeLightRadio" Content="ライト" Tag="Light" GroupName="SidebarTheme"
+                                                 Margin="12,2" Foreground="{DynamicResource TextPrimaryBrush}" Click="SidebarTheme_Click"/>
+                                    <RadioButton x:Name="SidebarThemeDarkRadio" Content="ダーク" Tag="Dark" GroupName="SidebarTheme"
+                                                 Margin="12,2" Foreground="{DynamicResource TextPrimaryBrush}" Click="SidebarTheme_Click"/>
+                                    <RadioButton x:Name="SidebarThemeAshRadio" Content="アッシュ" Tag="Ash" GroupName="SidebarTheme"
+                                                 Margin="12,2" Foreground="{DynamicResource TextPrimaryBrush}" Click="SidebarTheme_Click"/>
+                                    <RadioButton x:Name="SidebarThemeSystemRadio" Content="システム" Tag="System" GroupName="SidebarTheme"
+                                                 Margin="12,2" Foreground="{DynamicResource TextPrimaryBrush}" Click="SidebarTheme_Click"/>
+                                </StackPanel>
+                            </Expander>
+
+                            <Expander x:Name="SidebarOtherExpander" Header="その他" IsExpanded="False"
+                                      Style="{StaticResource SidebarSectionExpanderStyle}"
+                                      Foreground="{DynamicResource TextPrimaryBrush}">
+                                <StackPanel>
+                                    <Button x:Name="SidebarAboutButton" Content="バージョン情報" Click="About_Click" Style="{StaticResource SidebarMenuButtonStyle}"/>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
         </Grid>
     </Border>
 </Window>
