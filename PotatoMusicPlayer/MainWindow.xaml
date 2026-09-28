@@ -45,6 +45,8 @@
 
     <Border BorderBrush="{DynamicResource BorderDefaultBrush}" BorderThickness="1">
         <Grid x:Name="RootGrid">
+            <!-- すりガラス時のヒットテスト用全面プレート(最背面。操作の貫通防止) -->
+            <Border x:Name="HitTestPlate" Background="{DynamicResource HitTestPlateBrush}" Visibility="Collapsed"/>
             <!-- ============ メインコンテンツ(サイドバーオープン時はぼかし+減光) ============ -->
             <Grid x:Name="MainContentGrid">
                 <Grid.RowDefinitions>

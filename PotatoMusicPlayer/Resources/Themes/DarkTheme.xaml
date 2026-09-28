@@ -65,6 +65,9 @@
     <!-- すりガラス用の半透明色。ウィンドウ背景だけが透け、パネル類は不透明のまま。 -->
     <Color x:Key="GlassTintColor">#00121212</Color>
     <SolidColorBrush x:Key="GlassTintBrush" Color="{StaticResource GlassTintColor}"/>
+    <!-- ヒットテスト用プレート(視覚上は透明だがα>0で全面の当たり判定を確保)。3テーマ同値。 -->
+    <Color x:Key="HitTestPlateColor">#0A000000</Color>
+    <SolidColorBrush x:Key="HitTestPlateBrush" Color="{StaticResource HitTestPlateColor}"/>
     <SolidColorBrush x:Key="SidebarDimBrush" Color="{StaticResource SidebarDimColor}" Opacity="0.4"/>
 
     <!-- ===================== グラデーション・グロー =====================

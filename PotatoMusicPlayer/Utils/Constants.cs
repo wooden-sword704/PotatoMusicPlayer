@@ -7,10 +7,10 @@ namespace PotatoMusicPlayer.Utils
     {
         // アプリケーション情報
         public const string AppName = "Potato Music Player";
-        public const string AppVersion = "1.3.0(Beta)";
-        public const string AppAuthor = "Velters";
+        public const string AppVersion = "WSMod-1.4.0 RC1";
+        public const string AppAuthor = "Velters,wooden_sword704";
 
-        // ウィンドウ
+        // ウィンドウs
         public const double DefaultWindowWidth = 400;
         public const double DefaultWindowHeight = 150;
 

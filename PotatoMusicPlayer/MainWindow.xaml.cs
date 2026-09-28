@@ -210,6 +210,8 @@ namespace PotatoMusicPlayer
                 return;
 
             bool effective = _viewModel.Settings.IsGlassBackground && AllowsTransparency;
+            if (HitTestPlate != null)
+                HitTestPlate.Visibility = effective ? Visibility.Visible : Visibility.Collapsed;
             if (effective)
             {
                 // DWM backdrop が使えない環境でも、レイヤード透過により半透明表示になる
@@ -226,12 +228,23 @@ namespace PotatoMusicPlayer
         }
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern IntPtr DefWindowProc(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        private static extern bool GetWindowRect(IntPtr hWnd, out WindowRect rect);
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct WindowRect
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
 
         /// <summary>
-        /// OSレベルのヒットテストフック。透過画素を理由に HTTRANSPARENT が返る場合のみ
-        /// HTCLIENT に矯正し、ウィンドウ矩形内の操作が背後に抜けるのを防ぐ。
-        /// それ以外の判定(リサイズグリップ等)は既定処理に任せる。
+        /// OSレベルのヒットテストフック。すりガラス有効時はウィンドウ矩形内を
+        /// 無条件に HTCLIENT 扱いし、空白部分の操作が背後に抜けるのを防ぐ。
+        /// リサイズグリップ角のみ HTBOTTOMRIGHT を返して拡縮を維持する。
+        /// ガラス無効時は既定処理に任せる。
         /// </summary>
         private void InstallHitTestHook()
         {
@@ -242,18 +255,23 @@ namespace PotatoMusicPlayer
         private IntPtr HwndMessageHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
             const int WM_NCHITTEST = 0x0084;
-            const int HTTRANSPARENT = -1;
             const int HTCLIENT = 1;
-            if (msg == WM_NCHITTEST)
-            {
-                IntPtr hit = DefWindowProc(hwnd, msg, wParam, lParam);
-                if (hit == (IntPtr)HTTRANSPARENT)
-                {
-                    handled = true;
-                    return (IntPtr)HTCLIENT;
-                }
-            }
-            return IntPtr.Zero;
+            const int HTBOTTOMRIGHT = 17;
+            const int GripSize = 20;
+            if (msg != WM_NCHITTEST)
+                return IntPtr.Zero;
+            if (!AllowsTransparency || _viewModel?.Settings.IsGlassBackground != true)
+                return IntPtr.Zero;
+            if (!GetWindowRect(hwnd, out WindowRect rect))
+                return IntPtr.Zero;
+
+            long packed = lParam.ToInt64();
+            int x = (short)(packed & 0xFFFF);
+            int y = (short)((packed >> 16) & 0xFFFF);
+            handled = true;
+            if (x >= rect.Right - GripSize && y >= rect.Bottom - GripSize)
+                return (IntPtr)HTBOTTOMRIGHT;
+            return (IntPtr)HTCLIENT;
         }
 
         private void MaybePromptGlassRestart()        {
