@@ -5,14 +5,9 @@ using System.Collections.ObjectModel;
 namespace PotatoMusicPlayer.Models
 {
     /// <summary>
-    /// 言語設定
+    /// 言語設定(言語ファイルのコード: ja-JP, en-US など)。
+    /// 旧設定の enum 値は LanguageService.NormalizeCode で読み替える。
     /// </summary>
-    public enum Language
-    {
-        EnglishUS = 0,
-        Japanese = 1
-    }
-
     public enum ThemeMode
     {
         Light,
@@ -34,6 +29,13 @@ namespace PotatoMusicPlayer.Models
         GB
     }
 
+    /// <summary>全体波形ビューで選択した範囲の終端到達時の動作。</summary>
+    public enum RepeatRangeMode
+    {
+        Loop,
+        StopAtEnd
+    }
+
     /// <summary>
     /// アプリケーション全体の設定
     /// </summary>
@@ -48,6 +50,7 @@ namespace PotatoMusicPlayer.Models
         public bool IsAlwaysOnTop { get; set; } = false;
         public bool IsWindowSizeFixed { get; set; } = false;
         public bool IsFullScreen { get; set; } = false;
+        public bool IsGlassBackground { get; set; } = false;
         public bool IsMenuBarCollapsed { get; set; } = true;
 
         // 再生設定
@@ -62,6 +65,11 @@ namespace PotatoMusicPlayer.Models
         public LoopMode DefaultLoopMode { get; set; } = LoopMode.Off;
         // ファイル読み込み時に自動で再生を開始する。既定はオフ。
         public bool AutoPlayOnLoad { get; set; } = false;
+        // 全体波形ビューで選択した範囲のリピート再生。既定はオフ。
+        public bool RepeatRangeEnabled { get; set; } = false;
+        public double RepeatRangeStart { get; set; } = 0;
+        public double RepeatRangeEnd { get; set; } = 0;
+        public RepeatRangeMode RepeatRangeMode { get; set; } = RepeatRangeMode.Loop;
 
         // 波形表示設定
         public bool ShowWaveform { get; set; } = true;
@@ -83,12 +91,15 @@ namespace PotatoMusicPlayer.Models
 
         // ファイル管理
         public List<string> RecentFiles { get; set; } = new List<string>();
+        public List<StoredPlaylist> Playlists { get; set; } = new List<StoredPlaylist>();
+        /// <summary>プレイリスト枠の「連続で流す」。OFF時は曲単位で停止する。</summary>
+        public bool PlaylistContinuous { get; set; } = true;
         public int MaxRecentFiles { get; set; } = 50;
         public bool RememberLastFile { get; set; } = true;
         public string LastPlayedFilePath { get; set; } = "";
 
         // 言語・地域
-        public Language Language { get; set; } = Language.EnglishUS;
+        public string Language { get; set; } = "en-US";
         public ThemeMode Theme { get; set; } = ThemeMode.System;
 
         // オーディオ設定
@@ -242,6 +253,9 @@ namespace PotatoMusicPlayer.Models
         public float ZoomFactor { get; set; } = 2.0f;
         public float ScrollStepSize { get; set; } = 0.2f;
         public CursorDisplayMode CursorMode { get; set; } = CursorDisplayMode.CenterFixed;
+        // ビューを自由化: オンでは再生バーが表示範囲から外れても追従しない。
+        // 中央固定とは排他(オンにすると中央固定はオフになる)。
+        public bool FreeView { get; set; } = false;
         public bool ShowMinimap { get; set; } = true;
         public int MinimapHeight { get; set; } = 16;
         public int HorizontalDetail { get; set; } = 100;

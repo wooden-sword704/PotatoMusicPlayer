@@ -56,8 +56,11 @@ namespace PotatoMusicPlayer
             if (sender is Button btn && btn.Tag is string path)
             {
                 CloseSidebarAfterAction();
+                _viewModel.ClearPlaylist();
                 await _viewModel.LoadAndPlayFileAsync(path);
                 UpdateRecentFilesMenu();
+                UpdateHomeRecentList();
+                ShowPlayer(true);
             }
         }
 
@@ -74,6 +77,7 @@ namespace PotatoMusicPlayer
                 settingsService.SaveSettings(s);
 
                 UpdateRecentFilesMenu();
+                UpdateHomeRecentList();
             }
             catch (Exception) { }
         }

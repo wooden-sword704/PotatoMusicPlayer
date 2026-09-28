@@ -50,6 +50,7 @@ namespace PotatoMusicPlayer.Views
 
             // ShowWaveform
             ShowWaveformCheck.IsChecked = _editableSettings.ShowWaveform;
+            FreeViewCheck.IsChecked = _editableSettings.WaveformZoom.FreeView;
             ShowSpectrumCheck.IsChecked = _editableSettings.ShowSpectrum;
             var waveformZoom = _editableSettings.WaveformZoom ?? new WaveformZoomSettings();
             _editableSettings.WaveformZoom = waveformZoom;
@@ -73,13 +74,14 @@ namespace PotatoMusicPlayer.Views
             HorizontalDetailText.Text = waveformZoom.HorizontalDetail.ToString();
             VerticalDetailText.Text = waveformZoom.VerticalDetail.ToString();
 
-            LanguageComboBox.SelectedIndex = _editableSettings.Language == PotatoMusicPlayer.Models.Language.Japanese ? 0 : 1;
+            PopulateLanguageCombo();
             ThemeComboBox.SelectedIndex = (int)_editableSettings.Theme;
             RememberLastVolumeCheck.IsChecked = _editableSettings.RememberLastVolume;
             RememberLastSpeedCheck.IsChecked = _editableSettings.RememberLastPlaybackSpeed;
             RememberLastLoopCheck.IsChecked = _editableSettings.RememberLastLoopMode;
             RememberWaveformZoomCheck.IsChecked = _editableSettings.RememberWaveformZoom;
             AutoPlayOnLoadCheck.IsChecked = _editableSettings.AutoPlayOnLoad;
+            GlassBackgroundCheck.IsChecked = _editableSettings.IsGlassBackground;
             DefaultWaveformZoomValueText.Text = _editableSettings.DefaultWaveformZoomValue.ToString("0.##");
             DefaultWaveformZoomUnitComboBox.SelectedIndex = _editableSettings.DefaultWaveformZoomUnit == WaveformZoomUnit.Seconds ? 1 : 0;
             TrackTransitionDelayText.Text = _editableSettings.TrackTransitionDelaySeconds.ToString("0.##");
@@ -87,6 +89,29 @@ namespace PotatoMusicPlayer.Views
             // default selection
             CategoryList.SelectedIndex = 0; // select "一般" by default
             Loaded += (_, _) => CaptureAppliedSettingValues();
+        }
+
+        /// <summary>
+        /// 言語ファイルの一覧から選択肢を作る。言語追加はJSON追加のみでよい。
+        /// </summary>
+        private void PopulateLanguageCombo()
+        {
+            LanguageComboBox.Items.Clear();
+            int selected = 0;
+            int index = 0;
+            foreach (var info in LanguageService.GetAvailableLanguages())
+            {
+                var item = new System.Windows.Controls.ComboBoxItem
+                {
+                    Content = info.DisplayName,
+                    Tag = info.Code
+                };
+                LanguageComboBox.Items.Add(item);
+                if (string.Equals(info.Code, _editableSettings.Language, StringComparison.OrdinalIgnoreCase))
+                    selected = index;
+                index++;
+            }
+            LanguageComboBox.SelectedIndex = LanguageComboBox.Items.Count > 0 ? selected : -1;
         }
 
         private void SettingsWindow_ContentRendered(object sender, EventArgs e)
@@ -111,6 +136,7 @@ namespace PotatoMusicPlayer.Views
         {
             // Apply edited values to the original settings instance and save
             _editableSettings.ShowWaveform = ShowWaveformCheck.IsChecked == true;
+            _editableSettings.WaveformZoom.FreeView = FreeViewCheck.IsChecked == true;
             _editableSettings.ShowSpectrum = ShowSpectrumCheck.IsChecked == true;
             _editableSettings.WaveformZoom.ShowMinimap = ShowMinimapCheck.IsChecked == true;
             _editableSettings.WaveformZoom.ProgressiveWaveform = ProgressiveWaveformCheck.IsChecked == true;
@@ -120,12 +146,13 @@ namespace PotatoMusicPlayer.Views
             _editableSettings.RememberLastLoopMode = RememberLastLoopCheck.IsChecked == true;
             _editableSettings.RememberWaveformZoom = RememberWaveformZoomCheck.IsChecked == true;
             _editableSettings.AutoPlayOnLoad = AutoPlayOnLoadCheck.IsChecked == true;
+            _editableSettings.IsGlassBackground = GlassBackgroundCheck.IsChecked == true;
             if (!TryReadNumericSettings() || HasDuplicateHotKeys())
                 return false;
             if (LanguageComboBox.SelectedItem is System.Windows.Controls.ComboBoxItem languageItem &&
-                Enum.TryParse(languageItem.Tag?.ToString(), out PotatoMusicPlayer.Models.Language language))
+                languageItem.Tag is string languageCode)
             {
-                _editableSettings.Language = language;
+                _editableSettings.Language = LanguageService.NormalizeCode(languageCode);
             }
             if (ThemeComboBox.SelectedItem is System.Windows.Controls.ComboBoxItem themeItem &&
                 Enum.TryParse(themeItem.Tag?.ToString(), out ThemeMode theme))
@@ -135,6 +162,12 @@ namespace PotatoMusicPlayer.Views
             if (CursorModeComboBox.SelectedItem is System.Windows.Controls.ComboBoxItem cursorItem &&
                 Enum.TryParse(cursorItem.Tag?.ToString(), out CursorDisplayMode cursorMode))
             {
+                // ビュー自由化と中央固定は排他。自由化がオンなら左流しに寄せる。
+                if (_editableSettings.WaveformZoom.FreeView && cursorMode == CursorDisplayMode.CenterFixed)
+                {
+                    cursorMode = CursorDisplayMode.LeftScroll;
+                    CursorModeComboBox.SelectedIndex = 1;
+                }
                 _editableSettings.WaveformZoom.CursorMode = cursorMode;
             }
             if (DefaultWaveformZoomUnitComboBox.SelectedItem is System.Windows.Controls.ComboBoxItem zoomUnitItem &&
@@ -497,6 +530,7 @@ namespace PotatoMusicPlayer.Views
             DisplayCacheLimitValueText.Text = defaults.WaveformCacheLimitValue.ToString("0.##");
             DisplayCacheLimitUnitComboBox.SelectedIndex = Math.Clamp((int)defaults.WaveformCacheLimitUnit, 0, 2);
             CursorModeComboBox.SelectedIndex = 0;
+            FreeViewCheck.IsChecked = defaults.FreeView;
             MinZoomLevelText.Text = defaults.MinZoomLevel.ToString("0.##");
             ZoomFactorText.Text = defaults.ZoomFactor.ToString("0.##");
             WaveformScrollStepText.Text = defaults.ScrollStepSize.ToString("0.##");
@@ -527,6 +561,7 @@ namespace PotatoMusicPlayer.Views
             RememberLastLoopCheck.Content = _languageService.Get("Settings.RememberLastLoop");
             RememberWaveformZoomCheck.Content = _languageService.Get("Settings.RememberWaveformZoom");
             AutoPlayOnLoadCheck.Content = _languageService.Get("Settings.AutoPlayOnLoad");
+            GlassBackgroundCheck.Content = _languageService.Get("Settings.GlassBackground");
             DefaultWaveformZoomLabelText.Text = _languageService.Get("Settings.DefaultWaveformZoom");
             LightThemeItem.Content = _languageService.Get("Theme.Light");
             DarkThemeItem.Content = _languageService.Get("Theme.Dark");
@@ -537,6 +572,7 @@ namespace PotatoMusicPlayer.Views
             DisplayTitleText.Text = _languageService.Get("Settings.DisplayTitle");
             DisplayHintText.Text = _languageService.Get("Settings.DisplayHint");
             ShowWaveformLabelText.Text = _languageService.Get("Settings.ShowWaveform");
+            FreeViewLabelText.Text = _languageService.Get("Settings.FreeView");
             ProgressiveWaveformLabelText.Text = _languageService.Get("Settings.ProgressiveWaveform");
             SaveWaveformCacheLabelText.Text = _languageService.Get("Settings.SaveWaveformCache");
             ClearWaveformCacheLabelText.Text = _languageService.Get("Settings.ClearWaveformCache");
@@ -568,8 +604,6 @@ namespace PotatoMusicPlayer.Views
             TrackTransitionDelayLabelText.Text = _languageService.Get("Settings.TrackTransitionDelay");
             NumericTitleText.Text = _languageService.Get("Settings.NumericTitle");
             NumericHintText.Text = _languageService.Get("Settings.NumericHint");
-            JapaneseLanguageItem.Content = _languageService.Get("Language.Japanese");
-            EnglishLanguageItem.Content = _languageService.Get("Language.EnglishUS");
             CancelButton.Content = _languageService.Get("Common.Cancel");
             ApplyButton.Content = _languageService.Get("Common.Apply");
             OkButton.Content = _languageService.Get("Common.OK");

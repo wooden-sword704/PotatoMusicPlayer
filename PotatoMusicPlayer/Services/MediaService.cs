@@ -31,6 +31,8 @@ namespace PotatoMusicPlayer.Services
         public event EventHandler PlaybackStateChanged;
         public event EventHandler MediaEnded;
         public event EventHandler<string> ErrorOccurred;
+        // バッファリング進捗(0 ~ 100)。再生パイプラインの読み込み表示用。
+        public event EventHandler<float> BufferingChanged;
 
         private void Raise(Action action)
         {
@@ -93,6 +95,7 @@ namespace PotatoMusicPlayer.Services
                     _mediaPlayer.Playing += OnMediaPlaying;
                     _mediaPlayer.TimeChanged += OnMediaTimeChanged;
                     _mediaPlayer.LengthChanged += OnMediaLengthChanged;
+                    _mediaPlayer.Buffering += OnMediaBuffering;
                     _mediaPlayer.EncounteredError += OnMediaEncounteredError;
                     // プレイヤー生成前に設定されていた音量を適用
                     _mediaPlayer.Volume = (int)(_desiredVolume * 100);
@@ -111,6 +114,67 @@ namespace PotatoMusicPlayer.Services
                 Raise(() => ErrorOccurred?.Invoke(this, $"Failed to load file: {ex.Message}"));
                 return false;
             }
+        }
+
+        /// <summary>
+        /// 再生パイプラインが安定する(実際に音声時刻が進み始める)のを待つ。
+        /// 読み込み直後の即時シークによる音の途切れを防ぐためのゲート。
+        /// キャンセル・エラー時は false を返す(例外は投げない)。
+        /// </summary>
+        public Task<bool> WaitForStablePlaybackAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                if (_mediaPlayer != null && _mediaPlayer.IsPlaying && _mediaPlayer.Time > 0)
+                    return Task.FromResult(true);
+            }
+            catch
+            {
+                // 状態取得に失敗した場合は下の待機フローへ進む。
+            }
+
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            int settled = 0;
+            EventHandler<TimeSpan> timeHandler = null;
+            EventHandler<float> bufferingHandler = null;
+            EventHandler<string> errorHandler = null;
+            CancellationTokenRegistration registration = default;
+
+            void Cleanup()
+            {
+                PositionChanged -= timeHandler;
+                BufferingChanged -= bufferingHandler;
+                ErrorOccurred -= errorHandler;
+                registration.Dispose();
+            }
+
+            bool TrySettle(bool result)
+            {
+                if (System.Threading.Interlocked.Exchange(ref settled, 1) != 0)
+                    return false;
+                Cleanup();
+                tcs.TrySetResult(result);
+                return true;
+            }
+
+            // 時刻が進み始めた = デコード〜出力が回っている。
+            timeHandler = (s, t) =>
+            {
+                if (t.TotalMilliseconds > 0)
+                    TrySettle(true);
+            };
+            bufferingHandler = (s, percent) =>
+            {
+                if (percent >= 100)
+                    TrySettle(true);
+            };
+            errorHandler = (s, message) => TrySettle(false);
+
+            PositionChanged += timeHandler;
+            BufferingChanged += bufferingHandler;
+            ErrorOccurred += errorHandler;
+            registration = cancellationToken.Register(() => TrySettle(false));
+            return tcs.Task;
         }
 
         /// <summary>
@@ -459,6 +523,11 @@ namespace PotatoMusicPlayer.Services
             _lastDuration = TimeSpan.FromMilliseconds(e.Length);
             Raise(() => DurationChanged?.Invoke(this, TimeSpan.FromMilliseconds(e.Length)));
             Raise(() => PlaybackStateChanged?.Invoke(this, EventArgs.Empty));
+        }
+
+        private void OnMediaBuffering(object sender, MediaPlayerBufferingEventArgs e)
+        {
+            Raise(() => BufferingChanged?.Invoke(this, e.Cache));
         }
 
         private void OnMediaEnded(object sender, EventArgs e)

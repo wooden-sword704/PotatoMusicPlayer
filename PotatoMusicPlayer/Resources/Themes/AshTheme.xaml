@@ -61,6 +61,9 @@
     <SolidColorBrush x:Key="ResetButtonForegroundBrush" Color="{StaticResource ResetButtonForegroundColor}"/>
     <SolidColorBrush x:Key="AccentButtonForegroundBrush" Color="{StaticResource AccentButtonForegroundColor}"/>
     <SolidColorBrush x:Key="PendingIndicatorBrush" Color="{StaticResource PendingIndicatorColor}"/>
+    <!-- すりガラス用の半透明色。ウィンドウ背景だけが透け、パネル類は不透明のまま。 -->
+    <Color x:Key="GlassTintColor">#002A3340</Color>
+    <SolidColorBrush x:Key="GlassTintBrush" Color="{StaticResource GlassTintColor}"/>
     <SolidColorBrush x:Key="SidebarDimBrush" Color="{StaticResource SidebarDimColor}" Opacity="0.4"/>
 
     <!-- ===================== グラデーション・グロー =====================

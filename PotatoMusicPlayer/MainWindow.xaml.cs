@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using PotatoMusicPlayer.Models;
@@ -26,16 +27,19 @@ namespace PotatoMusicPlayer
             PointToRange,
             ResizeStart,
             ResizeEnd,
-            ZoomAroundCenter
+            ZoomAroundCenter,
+            SelectRepeat
         }
 
         private readonly MainViewModel _viewModel;
         private readonly LanguageService _languageService;
+        private bool _glassRestartPrompted;
         private bool _isSidebarOpen;
         private bool _isSidebarAnimating;
         private bool _isDraggingSeekBar = false;
         private bool _wasPlayingBeforeSeekBarDrag;
         private bool _isDraggingWaveform = false;
+        private bool _isFreeViewDragging = false;
         private bool _isPotentialWaveformPan = false;
         private bool _isPanningWaveform = false;
         private bool _isCenterWaveformPanMode;
@@ -52,9 +56,20 @@ namespace PotatoMusicPlayer
         private bool _playPauseIsPlaying;
         private bool _playPauseIconInitialized;
         private readonly SpectrumService _spectrumService = new();
-        private DispatcherTimer _spectrumTimer;
+        private Brush _spectrumBrush;
+        private double _spectrumSlotWidth;
+        private double _spectrumBarWidth;
+        private double _spectrumMaxHeight = 1;
+        private string _lastSpectrumPath;
+        private double _lastSpectrumPosition = double.NaN;
+        private bool _isSpectrumRenderingAttached;
         private readonly List<Rectangle> _spectrumBars = new();
         private CancellationTokenSource _spectrumLoadCts;
+        private bool _isRepeatEditMode;
+        private bool _isUpdatingRepeatUi;
+        private double _repeatSelectAnchor;
+        private double _lastRepeatCheckPosition = double.NaN;
+        private bool _minimapFreeViewDrag;
         private float[] _waveformData = Array.Empty<float>();
         private readonly List<Rectangle> _waveformBars = new();
         private Line _playbackCursorLine;
@@ -95,6 +110,10 @@ namespace PotatoMusicPlayer
 
             _viewModel = new MainViewModel();
             DataContext = _viewModel;
+            // すりガラス背景は HWND 作成前に AllowsTransparency を確定させる必要がある。
+            // 作成後に変えられないため、設定はここでのみ反映する。
+            if (_viewModel.Settings.IsGlassBackground)
+                AllowsTransparency = true;
             _languageService = new LanguageService(_viewModel.Settings.Language);
             ApplyLanguage();
 
@@ -106,10 +125,9 @@ namespace PotatoMusicPlayer
             UpdateVolumeIcon(VolumeSlider.Value);
             UpdatePlayPauseIcon(false, animate: false);
 
-            // スペクトラム描画タイマー(約16fps)。再生・停止いずれも減衰表示する。
-            _spectrumTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
-            _spectrumTimer.Tick += (_, _) => DrawSpectrum();
-            _spectrumTimer.Start();
+            // スペクトラム描画は VSync 駆動(モニターのリフレッシュに同期)。
+            // 解析レートは変えず、フレーム間を補間して滑らかに表示する。
+            SetSpectrumRendering(true);
 
             // ホットキー処理
             PreviewKeyDown += MainWindow_PreviewKeyDown;
@@ -119,6 +137,11 @@ namespace PotatoMusicPlayer
 
             Loaded += MainWindow_Loaded;
             Closing += MainWindow_Closing;
+            SourceInitialized += (_, _) =>
+            {
+                ApplyGlassBackground();
+                InstallHitTestHook();
+            };
         }
 
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -126,8 +149,16 @@ namespace PotatoMusicPlayer
             PlayEntranceAnimation();
             string startupFile = App.StartupFilePath;
             if (string.IsNullOrEmpty(startupFile) || !FileService.FileExists(startupFile))
+            {
+                // 関連付けなしの起動はホーム画面から始める
+                _isHomeVisible = false;
+                ShowHome(animate: false);
                 return;
+            }
 
+            _isHomeVisible = true;
+            ShowPlayer(animate: false);
+            _viewModel.ClearPlaylist();
             await _viewModel.LoadAndPlayFileAsync(startupFile);
             UpdateRecentFilesMenu();
         }
@@ -136,6 +167,7 @@ namespace PotatoMusicPlayer
         {
             UpdateVolumeIcon(_viewModel?.PlaybackState?.IsMuted == true ? 0 : VolumeSlider?.Value ?? 0);
             _minimapWaveformCache = null;
+            _spectrumBrush = null;
             DrawWaveform();
             DrawMinimap();
             DrawSpectrum();
@@ -164,6 +196,101 @@ namespace PotatoMusicPlayer
             VolumeSlider.Value = Math.Clamp(settings.DefaultVolume * 100, VolumeSlider.Minimum, VolumeSlider.Maximum);
             UpdateThemeMenuSelection(settings.Theme);
             RestoreSidebarState(settings.IsMenuBarCollapsed);
+        }
+
+        /// <summary>
+        /// すりガラス背景の適用。レイヤード(透過)ウィンドウのときのみ背景を抜く。
+        /// 非レイヤードでは描画サーフェスに有効なαが残らず、DWM合成で内容まで
+        /// 消えてしまうため、不透明に戻して何も見えなくなる状態を避ける。
+        /// AllowsTransparency は HWND 作成後に変えられないため、設定との不一致時は再起動を促す。
+        /// </summary>
+        private void ApplyGlassBackground()
+        {
+            if (RootGrid == null || _viewModel?.Settings == null)
+                return;
+
+            bool effective = _viewModel.Settings.IsGlassBackground && AllowsTransparency;
+            if (effective)
+            {
+                // DWM backdrop が使えない環境でも、レイヤード透過により半透明表示になる
+                WindowBackdropService.TryEnableBackdrop(this);
+                Background = Brushes.Transparent;
+                RootGrid.SetResourceReference(BackgroundProperty, "GlassTintBrush");
+            }
+            else
+            {
+                WindowBackdropService.DisableBackdrop(this);
+                SetResourceReference(BackgroundProperty, "SurfaceWindowBrush");
+                RootGrid.ClearValue(BackgroundProperty);
+            }
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr DefWindowProc(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        /// <summary>
+        /// OSレベルのヒットテストフック。透過画素を理由に HTTRANSPARENT が返る場合のみ
+        /// HTCLIENT に矯正し、ウィンドウ矩形内の操作が背後に抜けるのを防ぐ。
+        /// それ以外の判定(リサイズグリップ等)は既定処理に任せる。
+        /// </summary>
+        private void InstallHitTestHook()
+        {
+            if (PresentationSource.FromVisual(this) is HwndSource source)
+                source.AddHook(HwndMessageHook);
+        }
+
+        private IntPtr HwndMessageHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            const int WM_NCHITTEST = 0x0084;
+            const int HTTRANSPARENT = -1;
+            const int HTCLIENT = 1;
+            if (msg == WM_NCHITTEST)
+            {
+                IntPtr hit = DefWindowProc(hwnd, msg, wParam, lParam);
+                if (hit == (IntPtr)HTTRANSPARENT)
+                {
+                    handled = true;
+                    return (IntPtr)HTCLIENT;
+                }
+            }
+            return IntPtr.Zero;
+        }
+
+        private void MaybePromptGlassRestart()        {
+            if (_viewModel?.Settings == null)
+                return;
+
+            if (_viewModel.Settings.IsGlassBackground == AllowsTransparency)
+            {
+                _glassRestartPrompted = false;
+                return;
+            }
+            if (_glassRestartPrompted)
+                return;
+            _glassRestartPrompted = true;
+
+            var answer = MessageBox.Show(
+                _languageService.Get("Dialog.GlassRestart.Message"),
+                _languageService.Get("Dialog.GlassRestart.Title"),
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+            if (answer == MessageBoxResult.Yes)
+                RestartApplication();
+        }
+
+        private static void RestartApplication()
+        {
+            try
+            {
+                string exePath = Environment.ProcessPath;
+                if (!string.IsNullOrEmpty(exePath))
+                    Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
+            }
+            catch
+            {
+                // 起動に失敗しても終了は行う
+            }
+            Application.Current.Shutdown();
         }
 
         // ========== スペクトラム解析(実データ) ==========
@@ -331,6 +458,7 @@ namespace PotatoMusicPlayer
             SidebarShowWaveformCheck.IsChecked = settings.ShowWaveform;
             SidebarShowSpectrumCheck.IsChecked = settings.ShowSpectrum;
             SidebarCenterFixedCheck.IsChecked = settings.WaveformZoom.CursorMode == CursorDisplayMode.CenterFixed;
+            SidebarFreeViewCheck.IsChecked = settings.WaveformZoom.FreeView;
             UpdateThemeMenuSelection(settings.Theme);
         }
 
@@ -369,8 +497,8 @@ namespace PotatoMusicPlayer
         private void MainWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
             SetPlaybackRendering(false);
+            SetSpectrumRendering(false);
             ThemeService.ThemeChanged -= ThemeService_ThemeChanged;
-            _spectrumTimer?.Stop();
             _spectrumLoadCts?.Cancel();
             _spectrumLoadCts?.Dispose();
             _spectrumService?.Dispose();
@@ -404,10 +532,19 @@ namespace PotatoMusicPlayer
                 {
                     UpdateMediaInfoDisplay();
                     BeginSpectrumAnalysis();
+                    // ファイルが変わったらリピート範囲を解除する(別曲への持ち越し防止)。
+                    _viewModel.Settings.RepeatRangeEnabled = false;
+                    _lastRepeatCheckPosition = double.NaN;
+                    UpdateRepeatRangeUi();
                 }
                 else if (e.PropertyName == nameof(MainViewModel.PlaybackState))
                 {
                     UpdatePlaybackDisplay();
+                }
+                else if (e.PropertyName == nameof(MainViewModel.PlaylistIndex) ||
+                         e.PropertyName == nameof(MainViewModel.PlaylistQueue))
+                {
+                    UpdatePlaylistPanes();
                 }
                 else if (e.PropertyName == nameof(MainViewModel.CurrentWaveformData))
                 {
@@ -437,6 +574,11 @@ namespace PotatoMusicPlayer
                 {
                     UpdateWaveformProgress();
                 }
+                else if (e.PropertyName == nameof(MainViewModel.IsEngineLoading) ||
+                    e.PropertyName == nameof(MainViewModel.EngineBufferingPercent))
+                {
+                    UpdateEngineLoadingUi();
+                }
                 else if (e.PropertyName == nameof(MainViewModel.Settings))
                 {
                     _languageService.Load(_viewModel.Settings.Language);
@@ -444,6 +586,8 @@ namespace PotatoMusicPlayer
                     ApplyAudioSettingsToUi();
                     UpdateThemeMenuSelection(_viewModel.Settings.Theme);
                     ApplyWaveformSettingsToUi();
+                    ApplyGlassBackground();
+                    MaybePromptGlassRestart();
                 }
             });
         }
@@ -453,9 +597,13 @@ namespace PotatoMusicPlayer
             var media = _viewModel.CurrentMediaFile;
             if (media == null)
             {
-                TitleText.Text = "再生するファイルがありません";
+                TitleText.Text = _languageService.Get("Main.NoFile");
                 ArtistText.Text = "";
                 Title = _languageService.Get("Main.Title");
+                CurrentTimeText.Text = FormatTime(TimeSpan.Zero);
+                TotalTimeText.Text = FormatTime(TimeSpan.Zero);
+                SeekBar.Value = 0;
+                SeekBar.Maximum = 100;
                 return;
             }
 
@@ -568,6 +716,10 @@ namespace PotatoMusicPlayer
             double position = _viewModel.PendingWaveformSeekPosition ??
                 GetInterpolatedPlaybackPosition(playbackState);
 
+            // リピート範囲の終端に到達したらループ/停止させる。
+            if (EnforceRepeatRange(position))
+                return;
+
             if (!_isDraggingSeekBar && !_isDraggingWaveform)
                 SeekBar.Value = position;
 
@@ -676,6 +828,7 @@ namespace PotatoMusicPlayer
                 TitleText.Text = _languageService.Get("Main.NoFile");
 
             // ファイルセクション
+            SidebarHomeButton.Content = _languageService.Get("Menu.File.Home");
             SidebarOpenButton.Content = _languageService.Get("Menu.File.Open");
             SidebarOpenLocationButton.Content = _languageService.Get("Menu.File.OpenLocation");
             SidebarOpenTerminalButton.Content = _languageService.Get("Menu.File.OpenTerminal");
@@ -701,6 +854,7 @@ namespace PotatoMusicPlayer
             SidebarShowWaveformCheck.Content = _languageService.Get("Menu.View.ShowWaveform");
             SidebarShowSpectrumCheck.Content = _languageService.Get("Menu.View.ShowSpectrum");
             SidebarCenterFixedCheck.Content = _languageService.Get("Menu.View.CenterFixedWaveform");
+            SidebarFreeViewCheck.Content = _languageService.Get("Menu.View.FreeView");
             SidebarWaveformRangeButton.Content = _languageService.Get("Menu.View.WaveformRange");
             SidebarFullScreenButton.Content = _languageService.Get("Menu.View.FullScreen");
             SidebarThemeLabel.Text = _languageService.Get("Menu.View.Theme");
@@ -711,6 +865,29 @@ namespace PotatoMusicPlayer
 
             // その他セクション
             SidebarAboutButton.Content = _languageService.Get("Menu.Other.About");
+            UpdateEngineLoadingUi();
+
+            // 全体波形ビュー上部のリピート切替
+            UpdateMinimapModeSwitchTooltip();
+            RepeatLoopItem.Content = _languageService.Get("Repeat.Loop");
+            RepeatStopItem.Content = _languageService.Get("Repeat.StopAtEnd");
+            RepeatRangeClearButton.Content = _languageService.Get("Common.Clear");
+            // ホーム画面
+            HomeTitleText.Text = _languageService.Get("Main.Title");
+            HomeSubtitleText.Text = _languageService.Get("Home.Subtitle");
+            HomeOpenButton.Content = _languageService.Get("Home.OpenFile");
+            HomeSettingsButton.Content = _languageService.Get("Menu.Edit.Settings");
+            HomePlaylistButton.Content = _languageService.Get("Home.PlaylistWizard");
+            PropTitleLabel.Text = _languageService.Get("Playlist.PropTitle");
+            PropFileLabel.Text = _languageService.Get("Playlist.PropFile");
+            PropSizeLabel.Text = _languageService.Get("Playlist.PropSize");
+            PropLengthLabel.Text = _languageService.Get("Playlist.PropLength");
+            PropAddedLabel.Text = _languageService.Get("Playlist.PropAdded");
+            PropLocationLabel.Text = _languageService.Get("Playlist.PropLocation");
+            PropBitrateLabel.Text = _languageService.Get("Playlist.PropBitrate");
+            PlaylistContinuousCheck.Content = _languageService.Get("Playlist.Continuous");
+            HomeRecentHeader.Text = _languageService.Get("Menu.File.RecentFiles");
+            UpdateHomeRecentList();
             UpdateRecentFilesMenu();
             if (_viewModel?.PlaybackState != null)
                 LoopButton.Content = $"{_languageService.Get("Loop.Label")}: {GetLoopModeDisplayString(_viewModel.PlaybackState.LoopMode)}";
@@ -754,17 +931,8 @@ namespace PotatoMusicPlayer
         private async void OpenFile_Click(object sender, RoutedEventArgs e)
         {
             CloseSidebarAfterAction();
-            var dialog = new OpenFileDialog
-            {
-                Filter = FileService.GetFileDialogFilter(),
-                Title = "音楽ファイルを開く"
-            };
-
-            if (dialog.ShowDialog() == true)
-            {
-                await _viewModel.LoadAndPlayFileAsync(dialog.FileName);
-                UpdateRecentFilesMenu();
-            }
+            if (await PickAndPlayFileAsync())
+                ShowPlayer(true);
         }
 
         private void OpenFileLocation_Click(object sender, RoutedEventArgs e)
@@ -796,10 +964,10 @@ namespace PotatoMusicPlayer
             CloseSidebarAfterAction();
             _viewModel.TogglePlayPause();
         }
-        private void Stop_Click(object sender, RoutedEventArgs e)
+        private async void Stop_Click(object sender, RoutedEventArgs e)
         {
             CloseSidebarAfterAction();
-            _viewModel.Stop();
+            await _viewModel.RewindPlaylistToStartAsync();
         }
         private void GoToStart_Click(object sender, RoutedEventArgs e)
         {
@@ -890,15 +1058,37 @@ namespace PotatoMusicPlayer
             bool show = _viewModel?.Settings?.ShowSpectrum == true;
             SpectrumContainer.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             SpectrumRow.Height = show ? new GridLength(60) : new GridLength(0);
+            SetSpectrumRendering(show);
             if (show)
                 DrawSpectrum();
         }
 
         private void SidebarCenterFixed_Click(object sender, RoutedEventArgs e)
         {
-            _viewModel.Settings.WaveformZoom.CursorMode = SidebarCenterFixedCheck.IsChecked == true
+            bool centerFixed = SidebarCenterFixedCheck.IsChecked == true;
+            _viewModel.Settings.WaveformZoom.CursorMode = centerFixed
                 ? CursorDisplayMode.CenterFixed
                 : CursorDisplayMode.LeftScroll;
+            if (centerFixed)
+            {
+                // 中央固定とビュー自由化は排他。
+                _viewModel.Settings.WaveformZoom.FreeView = false;
+                SidebarFreeViewCheck.IsChecked = false;
+            }
+            DrawWaveform();
+            DrawMinimap();
+        }
+
+        private void SidebarFreeView_Click(object sender, RoutedEventArgs e)
+        {
+            bool freeView = SidebarFreeViewCheck.IsChecked == true;
+            _viewModel.Settings.WaveformZoom.FreeView = freeView;
+            if (freeView)
+            {
+                // 中央固定とビュー自由化は排他。
+                _viewModel.Settings.WaveformZoom.CursorMode = CursorDisplayMode.LeftScroll;
+                SidebarCenterFixedCheck.IsChecked = false;
+            }
             DrawWaveform();
             DrawMinimap();
         }
@@ -941,6 +1131,8 @@ namespace PotatoMusicPlayer
                 SidebarShowSpectrumCheck.IsChecked = appSettings.ShowSpectrum;
             if (SidebarCenterFixedCheck != null)
                 SidebarCenterFixedCheck.IsChecked = settings.CursorMode == CursorDisplayMode.CenterFixed;
+            if (SidebarFreeViewCheck != null)
+                SidebarFreeViewCheck.IsChecked = settings.FreeView;
             WaveformContainer.Visibility = appSettings.ShowWaveform ? Visibility.Visible : Visibility.Collapsed;
             ApplySpectrumVisibility();
             MinimapContainer.Visibility = settings.ShowMinimap ? Visibility.Visible : Visibility.Collapsed;

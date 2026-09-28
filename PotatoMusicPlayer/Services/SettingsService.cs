@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Diagnostics;
 using Newtonsoft.Json;
@@ -13,7 +14,7 @@ namespace PotatoMusicPlayer.Services
     {
         private readonly string _settingsDirectory;
         private readonly string _settingsFilePath;
-        private AppSettings _currentSettings;
+        private static AppSettings _sharedSettings;
 
         public SettingsService()
         {
@@ -29,8 +30,9 @@ namespace PotatoMusicPlayer.Services
             if (!Directory.Exists(_settingsDirectory))
                 Directory.CreateDirectory(_settingsDirectory);
 
-            // 設定を読み込む
-            _currentSettings = LoadSettings();
+            // 設定を読み込む(全インスタンスで共有し、終了時の古い上書きを防ぐ)
+            if (_sharedSettings == null)
+                _sharedSettings = LoadSettings();
         }
 
         /// <summary>
@@ -48,6 +50,9 @@ namespace PotatoMusicPlayer.Services
                     settings?.EnsureDefaultHotKeys();
                     if (settings != null && settings.WaveformZoom == null)
                         settings.WaveformZoom = new WaveformZoomSettings();
+                    // 旧設定ファイルの enum 値・enum 名は言語コードへ読み替える。
+                    if (settings != null)
+                        settings.Language = LanguageService.NormalizeCode(settings.Language);
                     // 旧設定ファイルには存在しない項目は既定値を適用する。
                     if (settings?.WaveformZoom != null && !json.Contains("\"ProgressiveWaveform\"", StringComparison.Ordinal))
                         settings.WaveformZoom.ProgressiveWaveform = true;
@@ -74,7 +79,7 @@ namespace PotatoMusicPlayer.Services
             {
                 string json = JsonConvert.SerializeObject(settings, Formatting.Indented);
                 File.WriteAllText(_settingsFilePath, json);
-                _currentSettings = settings;
+                _sharedSettings = settings;
             }
             catch (Exception ex)
             {
@@ -87,9 +92,11 @@ namespace PotatoMusicPlayer.Services
         /// </summary>
         public AppSettings GetSettings()
         {
-            if (_currentSettings.WaveformZoom == null)
-                _currentSettings.WaveformZoom = new WaveformZoomSettings();
-            return _currentSettings;
+            if (_sharedSettings.WaveformZoom == null)
+                _sharedSettings.WaveformZoom = new WaveformZoomSettings();
+            if (_sharedSettings.Playlists == null)
+                _sharedSettings.Playlists = new List<StoredPlaylist>();
+            return _sharedSettings;
         }
 
         /// <summary>
@@ -111,16 +118,16 @@ namespace PotatoMusicPlayer.Services
                 return;
 
             // 既に存在する場合は削除
-            _currentSettings.RecentFiles.Remove(filePath);
+            _sharedSettings.RecentFiles.Remove(filePath);
 
             // リストの最初に追加
-            _currentSettings.RecentFiles.Insert(0, filePath);
+            _sharedSettings.RecentFiles.Insert(0, filePath);
 
             // 最大数を超えた分は削除
-            while (_currentSettings.RecentFiles.Count > _currentSettings.MaxRecentFiles)
-                _currentSettings.RecentFiles.RemoveAt(_currentSettings.RecentFiles.Count - 1);
+            while (_sharedSettings.RecentFiles.Count > _sharedSettings.MaxRecentFiles)
+                _sharedSettings.RecentFiles.RemoveAt(_sharedSettings.RecentFiles.Count - 1);
 
-            SaveSettings(_currentSettings);
+            SaveSettings(_sharedSettings);
         }
 
         /// <summary>
@@ -128,8 +135,8 @@ namespace PotatoMusicPlayer.Services
         /// </summary>
         public void ClearRecentFiles()
         {
-            _currentSettings.RecentFiles.Clear();
-            SaveSettings(_currentSettings);
+            _sharedSettings.RecentFiles.Clear();
+            SaveSettings(_sharedSettings);
         }
 
         /// <summary>

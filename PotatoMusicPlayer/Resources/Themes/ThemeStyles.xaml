@@ -102,7 +102,8 @@
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="{StaticResource MaterialCornerSmall}">
+                            CornerRadius="{StaticResource MaterialCornerSmall}"
+                            RenderTransformOrigin="0.5,0.5">
                         <Border.RenderTransform>
                             <ScaleTransform x:Name="PressScale" ScaleX="1" ScaleY="1"/>
                         </Border.RenderTransform>
@@ -179,7 +180,8 @@
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Root"
                             Background="{TemplateBinding Background}"
-                            CornerRadius="{StaticResource MaterialCornerSmall}">
+                            CornerRadius="{StaticResource MaterialCornerSmall}"
+                            RenderTransformOrigin="0.5,0.5">
                         <Border.RenderTransform>
                             <ScaleTransform x:Name="PressScale" ScaleX="1" ScaleY="1"/>
                         </Border.RenderTransform>
@@ -250,7 +252,8 @@
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Root"
                             Background="{TemplateBinding Background}"
-                            CornerRadius="{StaticResource MaterialCornerFab}">
+                            CornerRadius="{StaticResource MaterialCornerFab}"
+                            RenderTransformOrigin="0.5,0.5">
                         <Border.RenderTransform>
                             <ScaleTransform x:Name="PressScale" ScaleX="1" ScaleY="1"/>
                         </Border.RenderTransform>
@@ -628,6 +631,134 @@
                             </Track.Thumb>
                         </Track>
                     </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===================== ミニマップモードスイッチ(ビュー/リピート) =====================
+         チェックマークを使わない図形だけの2状態スイッチ。左=ビュー、右=リピート。
+         IsChecked=false→ビュー、true→リピート。サムのスライドとアイコンの
+         クロスフェードをVSMのCheckStatesでアニメーションする。 -->
+    <Style x:Key="MinimapModeSwitchStyle" TargetType="ToggleButton">
+        <Setter Property="Width" Value="64"/>
+        <Setter Property="Height" Value="39"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Root"
+                            Background="{DynamicResource SurfaceRaisedBrush}"
+                            CornerRadius="{StaticResource MaterialCornerPill}"
+                            RenderTransformOrigin="0.5,0.5">
+                        <Border.RenderTransform>
+                            <ScaleTransform x:Name="PressScale" ScaleX="1" ScaleY="1"/>
+                        </Border.RenderTransform>
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal"/>
+                                <VisualState x:Name="MouseOver">
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="HoverOverlay" Storyboard.TargetProperty="Opacity"
+                                                         To="1" Duration="{StaticResource MaterialDurationFast}" EasingFunction="{StaticResource MaterialEaseOut}"/>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="PressScale" Storyboard.TargetProperty="ScaleX"
+                                                         To="0.96" Duration="{StaticResource MaterialDurationInstant}" EasingFunction="{StaticResource MaterialEasePress}"/>
+                                        <DoubleAnimation Storyboard.TargetName="PressScale" Storyboard.TargetProperty="ScaleY"
+                                                         To="0.96" Duration="{StaticResource MaterialDurationInstant}" EasingFunction="{StaticResource MaterialEasePress}"/>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                                         To="0.4" Duration="{StaticResource MaterialDurationInstant}"/>
+                                    </Storyboard>
+                                </VisualState>
+                            </VisualStateGroup>
+                            <VisualStateGroup x:Name="CheckStates">
+                                <VisualState x:Name="Unchecked">
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="ThumbSlide" Storyboard.TargetProperty="X"
+                                                         To="0" Duration="{StaticResource MaterialDurationFast}" EasingFunction="{StaticResource MaterialEaseOut}"/>
+                                        <DoubleAnimation Storyboard.TargetName="ViewActiveLayer" Storyboard.TargetProperty="Opacity"
+                                                         To="1" Duration="{StaticResource MaterialDurationFast}" EasingFunction="{StaticResource MaterialEaseOut}"/>
+                                        <DoubleAnimation Storyboard.TargetName="RepeatActiveLayer" Storyboard.TargetProperty="Opacity"
+                                                         To="0" Duration="{StaticResource MaterialDurationFast}" EasingFunction="{StaticResource MaterialEaseOut}"/>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Checked">
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="ThumbSlide" Storyboard.TargetProperty="X"
+                                                         To="28" Duration="{StaticResource MaterialDurationFast}" EasingFunction="{StaticResource MaterialEaseOut}"/>
+                                        <DoubleAnimation Storyboard.TargetName="ViewActiveLayer" Storyboard.TargetProperty="Opacity"
+                                                         To="0" Duration="{StaticResource MaterialDurationFast}" EasingFunction="{StaticResource MaterialEaseOut}"/>
+                                        <DoubleAnimation Storyboard.TargetName="RepeatActiveLayer" Storyboard.TargetProperty="Opacity"
+                                                         To="1" Duration="{StaticResource MaterialDurationFast}" EasingFunction="{StaticResource MaterialEaseOut}"/>
+                                    </Storyboard>
+                                </VisualState>
+                            </VisualStateGroup>
+                            <VisualStateGroup x:Name="FocusStates">
+                                <VisualState x:Name="Unfocused"/>
+                                <VisualState x:Name="Focused">
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Opacity"
+                                                         To="1" Duration="{StaticResource MaterialDurationFast}"/>
+                                    </Storyboard>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <Grid>
+                            <Border x:Name="HoverOverlay" Background="{DynamicResource MenuHoverBrush}" Opacity="0"
+                                    CornerRadius="{StaticResource MaterialCornerPill}"/>
+                            <Border x:Name="Thumb" Width="30" Height="30" CornerRadius="{StaticResource MaterialCornerPill}"
+                                    Background="{DynamicResource SurfaceControlBrush}"
+                                    BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                                    HorizontalAlignment="Left" VerticalAlignment="Center" Margin="3,0,0,0">
+                                <Border.RenderTransform>
+                                    <TranslateTransform x:Name="ThumbSlide" X="0"/>
+                                </Border.RenderTransform>
+                            </Border>
+                            <Border x:Name="FocusRing" BorderBrush="{DynamicResource AccentBlueBrush}" BorderThickness="2" Opacity="0"
+                                    CornerRadius="{StaticResource MaterialCornerPill}" IsHitTestVisible="False"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <!-- 左: ビュー(枠+波形バー) -->
+                                <Canvas Grid.Column="0" Width="16" Height="16"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Rectangle Canvas.Left="1" Canvas.Top="3.5" Width="14" Height="9" RadiusX="1.5" RadiusY="1.5"
+                                               Fill="Transparent" Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="1.5"/>
+                                    <Path Data="M5,6.5 V9.5 M8,5.5 V10.5 M11,7 V9" Stroke="{DynamicResource TextSecondaryBrush}"
+                                          StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                    <Canvas x:Name="ViewActiveLayer" Width="16" Height="16" Opacity="1">
+                                        <Rectangle Canvas.Left="1" Canvas.Top="3.5" Width="14" Height="9" RadiusX="1.5" RadiusY="1.5"
+                                                   Fill="Transparent" Stroke="{DynamicResource RangeOverlayBorderBrush}" StrokeThickness="1.5"/>
+                                        <Path Data="M5,6.5 V9.5 M8,5.5 V10.5 M11,7 V9" Stroke="{DynamicResource RangeOverlayBorderBrush}"
+                                              StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                    </Canvas>
+                                </Canvas>
+                                <!-- 右: リピート(循環矢印) -->
+                                <Canvas Grid.Column="1" Width="16" Height="16"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Path Data="M3.5,6 H10.5 A1.5,1.5 0 0 1 12,7.5 V8 M12.5,10 H5.5 A1.5,1.5 0 0 1 4,8.5 V8"
+                                          Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"/>
+                                    <Path Data="M3.2,6 L6.4,4.2 L6.4,7.8 Z M12.8,10 L9.6,8.2 L9.6,11.8 Z"
+                                          Fill="{DynamicResource TextSecondaryBrush}"/>
+                                    <Canvas x:Name="RepeatActiveLayer" Width="16" Height="16" Opacity="0">
+                                        <Path Data="M3.5,6 H10.5 A1.5,1.5 0 0 1 12,7.5 V8 M12.5,10 H5.5 A1.5,1.5 0 0 1 4,8.5 V8"
+                                              Stroke="{DynamicResource AccentBlueBrush}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"/>
+                                        <Path Data="M3.2,6 L6.4,4.2 L6.4,7.8 Z M12.8,10 L9.6,8.2 L9.6,11.8 Z"
+                                              Fill="{DynamicResource AccentBlueBrush}"/>
+                                    </Canvas>
+                                </Canvas>
+                            </Grid>
+                        </Grid>
+                    </Border>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

@@ -47,8 +47,6 @@
                         <TextBlock x:Name="LanguageLabelText" Text="言語" Grid.Column="0" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
                         <ComboBox x:Name="LanguageComboBox" Grid.Column="1" Width="180" HorizontalAlignment="Left"
                                   Style="{StaticResource ComboBoxStyle}">
-                            <ComboBoxItem x:Name="JapaneseLanguageItem" Content="Japanese (日本)" Tag="Japanese"/>
-                            <ComboBoxItem x:Name="EnglishLanguageItem" Content="English (US)" Tag="EnglishUS"/>
                         </ComboBox>
                     </Grid>
                     <Grid Margin="0,8,0,0">
@@ -93,6 +91,10 @@
                     <Grid Margin="0,4,0,0">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                         <CheckBox x:Name="AutoPlayOnLoadCheck" Grid.Column="1" Content="ファイル読込時に自動再生する" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                    </Grid>
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <CheckBox x:Name="GlassBackgroundCheck" Grid.Column="1" Content="背景をすりガラス風にする" Foreground="{DynamicResource TextPrimaryBrush}"/>
                     </Grid>
                 </StackPanel>
 
@@ -235,6 +237,10 @@
                             <ComboBoxItem x:Name="LeftScrollCursorItem" Content="左から流れる" Tag="LeftScroll"/>
                         </ComboBox>
                     </Grid>
+                    <StackPanel Orientation="Horizontal" Margin="0,4">
+                        <TextBlock x:Name="FreeViewLabelText" Text="ビューを自由化" Width="160" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="FreeViewCheck" VerticalAlignment="Center"/>
+                    </StackPanel>
                     <StackPanel Margin="0,4,0,0">
                         <Grid Margin="0,2" Height="28"><Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock x:Name="MinZoomLevelLabelText" Text="最小表示幅 (秒)" Grid.Column="0" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}"/><TextBox x:Name="MinZoomLevelText" Grid.Column="1" Width="130" TextAlignment="Center" VerticalAlignment="Center" VerticalContentAlignment="Center" Height="22" HorizontalAlignment="Left" Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderControlBrush}"/></Grid>
                         <Grid Margin="0,2" Height="28"><Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock x:Name="ZoomFactorLabelText" Text="ズーム倍率" Grid.Column="0" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}"/><TextBox x:Name="ZoomFactorText" Grid.Column="1" Width="130" TextAlignment="Center" VerticalAlignment="Center" VerticalContentAlignment="Center" Height="22" HorizontalAlignment="Left" Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderControlBrush}"/></Grid>

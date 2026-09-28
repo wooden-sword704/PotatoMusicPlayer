@@ -33,10 +33,16 @@ namespace PotatoMusicPlayer.ViewModels
         private MediaFile _currentMediaFile;
         private PlaybackState _playbackState;
         private bool _isLoading;
+        private bool _isEngineLoading;
+        private double _engineBufferingPercent = -1;
+        private CancellationTokenSource _engineLoadCts;
         private string _statusMessage;
         private float[] _currentWaveformData = Array.Empty<float>();
         private double _waveformProgress;
         private WaveformZoomState _zoomState;
+        private List<PlaylistEntry> _playlistQueue = new List<PlaylistEntry>();
+        private int _playlistIndex = -1;
+        private string _playlistName = string.Empty;
 
         public MainViewModel()
         {
@@ -50,6 +56,7 @@ namespace PotatoMusicPlayer.ViewModels
             _mediaService.DurationChanged += (s, e) => UpdatePlaybackState();
             _mediaService.MediaEnded += (s, e) => OnMediaEnded();
             _mediaService.ErrorOccurred += (s, msg) => StatusMessage = $"Error: {msg}";
+            _mediaService.BufferingChanged += (s, percent) => EngineBufferingPercent = percent;
 
             // UI 更新タイマー
             InitializeUpdateTimer();
@@ -102,6 +109,20 @@ namespace PotatoMusicPlayer.ViewModels
         {
             get => _isLoading;
             set => SetProperty(ref _isLoading, value);
+        }
+
+        /// <summary>エンジンが音声を読み込み中かどうか。読み込み完了まで再生操作を安定させる。</summary>
+        public bool IsEngineLoading
+        {
+            get => _isEngineLoading;
+            private set => SetProperty(ref _isEngineLoading, value);
+        }
+
+        /// <summary>エンジンのバッファリング進捗(0 ~ 100)。不明時は -1。</summary>
+        public double EngineBufferingPercent
+        {
+            get => _engineBufferingPercent;
+            private set => SetProperty(ref _engineBufferingPercent, value);
         }
 
         public string StatusMessage
@@ -177,7 +198,32 @@ namespace PotatoMusicPlayer.ViewModels
                     CurrentMediaFile = await _mediaService.GetMediaInfoAsync(filePath);
                     _settingsService.AddRecentFile(filePath);
                     if (_settingsService.GetSettings().AutoPlayOnLoad)
-                        Play();
+                    {
+                        // エンジンの読み込みが安定するまで待ってから再生する。
+                        // 安定前のシークが音の途切れの原因になるため、範囲内復帰も安定後に行う。
+                        _engineLoadCts?.Cancel();
+                        _engineLoadCts?.Dispose();
+                        _engineLoadCts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                        var loadCts = _engineLoadCts;
+                        IsEngineLoading = true;
+                        EngineBufferingPercent = -1;
+                        try
+                        {
+                            Play();
+                            await _mediaService.WaitForStablePlaybackAsync(loadCts.Token);
+                        }
+                        finally
+                        {
+                            IsEngineLoading = false;
+                            if (_engineLoadCts == loadCts)
+                                _engineLoadCts = null;
+                            loadCts.Dispose();
+                        }
+                        if (!string.Equals(CurrentMediaFile?.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
+                            return;
+                        UpdatePlaybackState();
+                        EnsureRepeatRangeStart();
+                    }
                     else
                         UpdatePlaybackState();
                     StatusMessage = $"Loaded: {CurrentMediaFile.FileName}";
@@ -232,6 +278,9 @@ namespace PotatoMusicPlayer.ViewModels
             // use the cached UI position here, since it can be stale after a seek.
             _mediaService.Play();
             UpdatePlaybackState();
+            // 再生開始時に範囲外にいたら範囲内へ戻す。読み込み中は安定後に行う。
+            if (!IsEngineLoading)
+                EnsureRepeatRangeStart();
         }
 
         public void PlayKeepingWaveformRange()
@@ -242,17 +291,139 @@ namespace PotatoMusicPlayer.ViewModels
             UpdatePlaybackState();
         }
 
+        /// <summary>
+        /// 再生開始時にリピート範囲外にいたら範囲先頭へ戻す(範囲内は何もしない)。
+        /// </summary>
+        public void EnsureRepeatRangeStart()
+        {
+            var settings = Settings;
+            if (settings == null || !settings.RepeatRangeEnabled)
+                return;
+
+            double total = ZoomState?.TotalDuration ?? PlaybackState?.Duration.TotalSeconds ?? 0;
+            if (total <= 0)
+                return;
+
+            double start = Math.Clamp(settings.RepeatRangeStart, 0, total);
+            double end = Math.Clamp(settings.RepeatRangeEnd, 0, total);
+            if (end - start < 0.1)
+                return;
+
+            double position = PlaybackState?.CurrentPosition.TotalSeconds ?? 0;
+            if (position < start || position >= end)
+                SeekAndPlay(start);
+        }
+
         public void Pause()
         {
+            _engineLoadCts?.Cancel();
             _mediaService.Pause();
             UpdatePlaybackState();
         }
 
         public void Stop()
         {
+            _engineLoadCts?.Cancel();
             CancelPendingWaveformSeek();
             _mediaService.Stop();
             UpdatePlaybackState();
+        }
+
+        /// <summary>
+        /// 再生を停止し、読み込み中のファイルと再生状態を破棄する(ホームへ戻る用)。
+        /// </summary>
+        public void UnloadCurrentFile()
+        {
+            Stop();
+            _playlistQueue.Clear();
+            _playlistIndex = -1;
+            _playlistName = string.Empty;
+            OnPropertyChanged(nameof(PlaylistQueue));
+            OnPropertyChanged(nameof(PlaylistIndex));
+            CurrentWaveformData = Array.Empty<float>();
+            WaveformProgress = 0;
+            CurrentMediaFile = null;
+        }
+
+        public bool IsPlaylistActive => _playlistQueue.Count > 0;
+
+        /// <summary>
+        /// 単体再生用にプレイリスト状態を捨てる(枠を隠す)。
+        /// </summary>
+        public void ClearPlaylist()
+        {
+            _playlistQueue.Clear();
+            _playlistIndex = -1;
+            _playlistName = string.Empty;
+            OnPropertyChanged(nameof(PlaylistQueue));
+            OnPropertyChanged(nameof(PlaylistIndex));
+        }
+        public IReadOnlyList<PlaylistEntry> PlaylistQueue => _playlistQueue;
+
+        public int PlaylistIndex => _playlistIndex;
+
+        public string PlaylistName => _playlistName;
+
+        /// <summary>
+        /// プレイリストをまとめて再生する。指定位置から開始し、終端で次へ進む。
+        /// </summary>
+        public async Task PlayPlaylistAsync(List<PlaylistEntry> entries, int startIndex, string name)
+        {
+            _playlistQueue = new List<PlaylistEntry>(entries ?? new List<PlaylistEntry>());
+            _playlistName = name ?? string.Empty;
+            _playlistIndex = Math.Clamp(startIndex, 0, Math.Max(0, _playlistQueue.Count - 1));
+            OnPropertyChanged(nameof(PlaylistQueue));
+            await PlayPlaylistIndexAsync();
+            OnPropertyChanged(nameof(PlaylistIndex));
+        }
+
+        private async Task PlayPlaylistIndexAsync()
+        {
+            while (_playlistIndex >= 0 && _playlistIndex < _playlistQueue.Count)
+            {
+                string path = _playlistQueue[_playlistIndex].FilePath;
+                await LoadAndPlayFileAsync(path);
+                if (string.Equals(CurrentMediaFile?.FilePath, path, StringComparison.OrdinalIgnoreCase))
+                    return;
+                _playlistIndex++;
+            }
+            Stop();
+        }
+
+        /// <summary>
+        /// キュー内の指定位置から再生する(枠のダブルクリック用)。
+        /// </summary>
+        public async Task PlayPlaylistTrackAsync(int index)
+        {
+            if (!IsPlaylistActive || index < 0 || index >= _playlistQueue.Count)
+                return;
+            _playlistIndex = index;
+            await PlayPlaylistIndexAsync();
+            OnPropertyChanged(nameof(PlaylistIndex));
+        }
+
+        /// <summary>
+        /// 停止ボタン用。プレイリスト再生中は先頭曲の先頭へ巻き戻して停止する。
+        /// </summary>
+        public async Task RewindPlaylistToStartAsync()
+        {
+            if (!IsPlaylistActive)
+            {
+                Stop();
+                return;
+            }
+
+            _playlistIndex = 0;
+            string path = _playlistQueue[0].FilePath;
+            Stop();
+            if (await _mediaService.LoadFileAsync(path))
+            {
+                CurrentMediaFile = await _mediaService.GetMediaInfoAsync(path);
+                SetPosition(0);
+                UpdatePlaybackState();
+                _ = LoadWaveformAsync(path);
+            }
+            OnPropertyChanged(nameof(PlaylistIndex));
         }
 
         public void SkipForward()
@@ -809,6 +980,10 @@ namespace PotatoMusicPlayer.ViewModels
             if (zoomState == null || zoomState.TotalDuration <= 0 || zoomState.VisibleRangeDuration <= 0)
                 return;
 
+            // ビュー自由化中は再生バーが範囲外に出ても何もしない。
+            if (settings.FreeView)
+                return;
+
             if (settings.CursorMode == CursorDisplayMode.CenterFixed)
             {
                 double previousStart = zoomState.VisibleRangeStart;
@@ -839,12 +1014,14 @@ namespace PotatoMusicPlayer.ViewModels
                 _settingsService.SaveSettings(settings);
             }
 
-            // ループモードに応じた処理
+            // ループモード・プレイリスト・連続設定に応じた処理
+            bool playlistFlow = IsPlaylistActive && settings.PlaylistContinuous;
             if (CurrentMediaFile != null)
             {
-                if (PlaybackState.LoopMode == LoopMode.One || PlaybackState.LoopMode == LoopMode.All)
+                if (PlaybackState.LoopMode == LoopMode.One ||
+                    (!playlistFlow && PlaybackState.LoopMode == LoopMode.All))
                 {
-                    // 現在はプレイリスト未実装のため、全体ループも同じ曲の先頭へ戻す。
+                    // 単曲ループ、または連続なし・未使用時の全体ループは同じ曲の先頭へ戻す。
                     // 左流モードでは表示範囲も先頭ページへ戻す。
                     Stop();
                     SetPosition(0);
@@ -854,9 +1031,32 @@ namespace PotatoMusicPlayer.ViewModels
                         await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
                     Play();
                 }
+                else if (playlistFlow)
+                {
+                    double delaySeconds = Math.Clamp(_settingsService.GetSettings().TrackTransitionDelaySeconds, 0, 60);
+                    if (delaySeconds > 0)
+                        await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
+
+                    int next = _playlistIndex + 1;
+                    if (next >= _playlistQueue.Count)
+                    {
+                        if (PlaybackState.LoopMode == LoopMode.All)
+                            next = 0;
+                        else
+                        {
+                            Stop();
+                            StatusMessage = "Playlist finished";
+                            OnPropertyChanged(nameof(PlaylistIndex));
+                            return;
+                        }
+                    }
+                    _playlistIndex = next;
+                    await PlayPlaylistIndexAsync();
+                    OnPropertyChanged(nameof(PlaylistIndex));
+                }
             }
 
-            if (PlaybackState.LoopMode == LoopMode.Off)
+            if (PlaybackState.LoopMode == LoopMode.Off && !playlistFlow)
             {
                 UpdatePlaybackState();
             }

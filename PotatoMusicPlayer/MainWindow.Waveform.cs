@@ -239,15 +239,32 @@ namespace PotatoMusicPlayer
                 _minimapCachedWidth = MinimapCanvas.ActualWidth;
                 _minimapCachedHeight = MinimapCanvas.ActualHeight;
             }
-            var (clippedStart, clippedEnd) = _viewModel.GetMinimapVisibleRange();
-            double left = clippedStart / zoomState.TotalDuration * MinimapCanvas.ActualWidth;
-            double width = (clippedEnd - clippedStart) / zoomState.TotalDuration * MinimapCanvas.ActualWidth;
+            // 共有の範囲UIはモードで束縛先が変わる。
+            // ビューモード: 表示範囲(緑) / リピートモード: リピート範囲(青)。
+            // リピート範囲はビュー範囲とは別に設定へ保持する。
+            double widgetStart;
+            double widgetEnd;
+            bool showWidget;
+            if (_isRepeatEditMode)
+            {
+                var repeatSettings = _viewModel.Settings;
+                widgetStart = Math.Clamp(repeatSettings.RepeatRangeStart, 0, zoomState.TotalDuration);
+                widgetEnd = Math.Clamp(repeatSettings.RepeatRangeEnd, 0, zoomState.TotalDuration);
+                showWidget = repeatSettings.RepeatRangeEnabled && widgetEnd - widgetStart >= 0.1;
+            }
+            else
+            {
+                var (clippedStart, clippedEnd) = _viewModel.GetMinimapVisibleRange();
+                widgetStart = clippedStart;
+                widgetEnd = clippedEnd;
+                showWidget = true;
+            }
+            double left = widgetStart / zoomState.TotalDuration * MinimapCanvas.ActualWidth;
+            double width = (widgetEnd - widgetStart) / zoomState.TotalDuration * MinimapCanvas.ActualWidth;
             if (_minimapRangeOverlay == null)
             {
                 _minimapRangeOverlay = new Rectangle
                 {
-                    Fill = (Brush)FindResource("RangeOverlayBrush"),
-                    Stroke = (Brush)FindResource("RangeOverlayBorderBrush"),
                     StrokeThickness = 1,
                     Tag = "RangeOverlay",
                     Cursor = Cursors.SizeAll
@@ -255,15 +272,32 @@ namespace PotatoMusicPlayer
                 Canvas.SetTop(_minimapRangeOverlay, 0);
                 MinimapCanvas.Children.Add(_minimapRangeOverlay);
             }
+            ApplyMinimapOverlayColors();
+            if (!showWidget)
+            {
+                _minimapRangeOverlay.Visibility = Visibility.Collapsed;
+                if (_minimapLeftHandle != null)
+                    _minimapLeftHandle.Visibility = Visibility.Collapsed;
+                if (_minimapRightHandle != null)
+                    _minimapRightHandle.Visibility = Visibility.Collapsed;
+                UpdateMinimapOutOfBoundsIndicator(ref _minimapLeftOutOfBoundsIndicator, false, true, left);
+                UpdateMinimapOutOfBoundsIndicator(ref _minimapRightOutOfBoundsIndicator, false, false, left + width);
+                UpdateMinimapCursor();
+                return;
+            }
             _minimapRangeOverlay.Width = Math.Max(1, width);
             _minimapRangeOverlay.Height = MinimapCanvas.ActualHeight;
             Canvas.SetLeft(_minimapRangeOverlay, left);
+            _minimapRangeOverlay.Visibility = Visibility.Visible;
 
             UpdateMinimapHandle(ref _minimapLeftHandle, "LeftHandle", left);
             UpdateMinimapHandle(ref _minimapRightHandle, "RightHandle", Math.Clamp(left + _minimapRangeOverlay.Width - 8, 0,
                 Math.Max(0, MinimapCanvas.ActualWidth - 8)));
-            bool extendsPastLeft = zoomState.VisibleRangeStart < 0;
-            bool extendsPastRight = zoomState.VisibleRangeEnd > zoomState.TotalDuration;
+            _minimapLeftHandle.Visibility = Visibility.Visible;
+            _minimapRightHandle.Visibility = Visibility.Visible;
+            // はみ出し表示はビュー範囲の概念なので、リピートモードでは出さない。
+            bool extendsPastLeft = !_isRepeatEditMode && zoomState.VisibleRangeStart < 0;
+            bool extendsPastRight = !_isRepeatEditMode && zoomState.VisibleRangeEnd > zoomState.TotalDuration;
             _minimapLeftHandle.Opacity = extendsPastLeft ? 0.45 : 1;
             _minimapRightHandle.Opacity = extendsPastRight ? 0.45 : 1;
             UpdateMinimapOutOfBoundsIndicator(ref _minimapLeftOutOfBoundsIndicator,
@@ -390,10 +424,73 @@ namespace PotatoMusicPlayer
             double clickedTime = x / MinimapCanvas.ActualWidth * zoomState.TotalDuration;
             string hitName = (e.OriginalSource as FrameworkElement)?.Tag as string;
 
+            // リピートモードでは共有の範囲UIでリピート範囲を編集する(ビュー範囲は不変)。
+            if (_isRepeatEditMode)
+            {
+                _minimapFreeViewDrag = false;
+                if (hitName == "LeftHandle")
+                {
+                    _isZoomingFromRightHandle = false;
+                    _minimapDragMode = MinimapDragMode.ResizeStart;
+                }
+                else if (hitName == "RightHandle")
+                {
+                    _isZoomingFromRightHandle = true;
+                    _minimapDragMode = MinimapDragMode.ResizeEnd;
+                }
+                else if (hitName == "RangeOverlay")
+                {
+                    _minimapDragMode = MinimapDragMode.MoveRange;
+                }
+                else
+                {
+                    _minimapDragMode = MinimapDragMode.SelectRepeat;
+                    _repeatSelectAnchor = clickedTime;
+                }
+                var repeatSettings = _viewModel.Settings;
+                _minimapDragStartX = x;
+                _minimapDragStartTime = clickedTime;
+                _minimapInitialRangeStart = Math.Clamp(repeatSettings.RepeatRangeStart, 0, zoomState.TotalDuration);
+                _minimapInitialRangeEnd = Math.Clamp(repeatSettings.RepeatRangeEnd, 0, zoomState.TotalDuration);
+                _minimapDragStarted = false;
+                // リピート編集は再生位置・再生状態に触れない。
+                MinimapCanvas.CaptureMouse();
+                e.Handled = true;
+                return;
+            }
+
+            // ビュー自由化時: 緑の範囲部分だけがビュー移動、それ以外は再生バーの移動。
+            // 再生バーと重なっている箇所は再生バーを優先する。
+            _minimapFreeViewDrag = false;
             // 中央固定では片側ハンドルも両側ズームとして扱う。
             bool centerFixedZoom = _viewModel.Settings.WaveformZoom.CursorMode == CursorDisplayMode.CenterFixed;
             bool symmetricZoom = (Keyboard.Modifiers & ModifierKeys.Shift) != ModifierKeys.None || centerFixedZoom;
-            if (hitName == "LeftHandle")
+            if (_viewModel.Settings.WaveformZoom.FreeView)
+            {
+                // ハンドルはビュー範囲の変更(シークなし)を維持する。
+                if (hitName == "LeftHandle")
+                {
+                    _isZoomingFromRightHandle = false;
+                    _minimapDragMode = symmetricZoom ? MinimapDragMode.ZoomAroundCenter : MinimapDragMode.ResizeStart;
+                }
+                else if (hitName == "RightHandle")
+                {
+                    _isZoomingFromRightHandle = true;
+                    _minimapDragMode = symmetricZoom ? MinimapDragMode.ZoomAroundCenter : MinimapDragMode.ResizeEnd;
+                }
+                else
+                {
+                    double displayedPosition = _viewModel.PendingWaveformSeekPosition ??
+                        _viewModel.PlaybackState?.CurrentPosition.TotalSeconds ?? 0;
+                    double cursorX = displayedPosition / zoomState.TotalDuration * MinimapCanvas.ActualWidth;
+                    if (Math.Abs(x - cursorX) <= 6 || hitName != "RangeOverlay")
+                        _minimapDragMode = MinimapDragMode.PointToRange;
+                    else
+                        _minimapDragMode = MinimapDragMode.MoveRange;
+                }
+                _minimapFreeViewDrag = true;
+            }
+            else if (hitName == "LeftHandle")
             {
                 _isZoomingFromRightHandle = false;
                 _minimapDragMode = symmetricZoom ? MinimapDragMode.ZoomAroundCenter : MinimapDragMode.ResizeStart;
@@ -421,13 +518,15 @@ namespace PotatoMusicPlayer
             _viewModel.BeginManualWaveformNavigation();
             // 範囲移動と枠外からの位置指定は解放時に一度だけシークする。押下時に一時停止すると、
             // すばやいドラッグで Pause と Play が競合し、再生が停止したままになる。
+            // ビュー自由化のビュー移動では再生を止めない。
             _resumePlaybackAfterMinimapDrag = _minimapDragMode != MinimapDragMode.MoveRange &&
                 _minimapDragMode != MinimapDragMode.PointToRange &&
+                !_minimapFreeViewDrag &&
                 PauseForZoomedDrag(zoomState);
             MinimapCanvas.CaptureMouse();
             if (_minimapDragMode == MinimapDragMode.PointToRange)
                 PreviewMinimapPointToRange(clickedTime);
-            else if (centerFixedZoom)
+            else if (centerFixedZoom && !_minimapFreeViewDrag)
                 DrawPlaybackCursorAtCenter();
             e.Handled = true;
         }
@@ -439,6 +538,13 @@ namespace PotatoMusicPlayer
                 return;
 
             _minimapCarriedPosition = Math.Clamp(position, 0, zoomState.TotalDuration);
+            // ビュー自由化の再生バー移動ではビュー範囲に触れない。
+            if (_minimapFreeViewDrag)
+            {
+                DrawPlaybackCursor(TimeSpan.FromSeconds(_minimapCarriedPosition.Value));
+                UpdateMinimapCursor();
+                return;
+            }
             if (_viewModel.Settings.WaveformZoom.CursorMode == CursorDisplayMode.CenterFixed)
             {
                 _viewModel.CenterWaveformRangeOnPosition(_minimapCarriedPosition.Value);
@@ -461,6 +567,21 @@ namespace PotatoMusicPlayer
             if (zoomState == null || MinimapCanvas.ActualWidth <= 0)
                 return;
 
+            // リピート範囲の選択中はプレビュー表示だけを更新する。
+            if (_minimapDragMode == MinimapDragMode.SelectRepeat)
+            {
+                double selectX = Math.Clamp(e.GetPosition(MinimapCanvas).X, 0, MinimapCanvas.ActualWidth);
+                if (!_minimapDragStarted)
+                {
+                    if (Math.Abs(selectX - _minimapDragStartX) < SystemParameters.MinimumHorizontalDragDistance)
+                        return;
+                    _minimapDragStarted = true;
+                }
+                double currentTime = selectX / MinimapCanvas.ActualWidth * zoomState.TotalDuration;
+                PreviewRepeatSelection(_repeatSelectAnchor, currentTime);
+                return;
+            }
+
             // 中央固定の範囲移動は、マウスがミニマップ外へ出ても曲端が中央へ来るまで続ける。
             double pointerX = e.GetPosition(MinimapCanvas).X;
             double x = _minimapDragMode == MinimapDragMode.MoveRange &&
@@ -482,6 +603,24 @@ namespace PotatoMusicPlayer
                     PreviewMinimapPointToRange(time);
                     break;
                 case MinimapDragMode.MoveRange:
+                    // ビュー自由化のビュー移動では再生バーをずらさない。
+                    if (_minimapFreeViewDrag)
+                    {
+                        double desiredViewStart = _minimapInitialRangeStart + deltaTime;
+                        if (_viewModel.Settings.WaveformZoom.CursorMode == CursorDisplayMode.CenterFixed)
+                            _viewModel.PanWaveformRange(desiredViewStart);
+                        else
+                            _viewModel.MoveWaveformRange(desiredViewStart);
+                        RefreshWaveformRange();
+                        UpdateMinimapCursor();
+                        break;
+                    }
+                    // リピートモードでは共有UIでリピート範囲を動かす(ビュー不変)。
+                    if (_isRepeatEditMode)
+                    {
+                        MoveRepeatRange(deltaTime, zoomState.TotalDuration);
+                        break;
+                    }
                     double desiredRangeStart = _minimapInitialRangeStart + deltaTime;
                     double previousRangeStart = _viewModel.ZoomState.VisibleRangeStart;
                     if (_viewModel.Settings.WaveformZoom.CursorMode == CursorDisplayMode.CenterFixed)
@@ -517,9 +656,21 @@ namespace PotatoMusicPlayer
                     UpdateMinimapCursor();
                     break;
                 case MinimapDragMode.ResizeStart:
+                    // リピートモードでは共有UIでリピート範囲の始端を動かす。
+                    if (_isRepeatEditMode)
+                    {
+                        ResizeRepeatRange(true, _minimapInitialRangeStart + deltaTime, zoomState.TotalDuration);
+                        break;
+                    }
                     _viewModel.SetWaveformRangeStart(_minimapInitialRangeStart + deltaTime);
                     break;
                 case MinimapDragMode.ResizeEnd:
+                    // リピートモードでは共有UIでリピート範囲の終端を動かす。
+                    if (_isRepeatEditMode)
+                    {
+                        ResizeRepeatRange(false, _minimapInitialRangeEnd + deltaTime, zoomState.TotalDuration);
+                        break;
+                    }
                     _viewModel.SetWaveformRangeEnd(_minimapInitialRangeEnd + deltaTime);
                     break;
                 case MinimapDragMode.ZoomAroundCenter:
@@ -551,8 +702,44 @@ namespace PotatoMusicPlayer
 
         private void MinimapCanvas_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
+            if (_minimapDragMode == MinimapDragMode.SelectRepeat)
+            {
+                if (_minimapDragStarted && _viewModel.ZoomState != null && MinimapCanvas.ActualWidth > 0)
+                {
+                    double x = Math.Clamp(e.GetPosition(MinimapCanvas).X, 0, MinimapCanvas.ActualWidth);
+                    CommitRepeatSelection(_repeatSelectAnchor,
+                        x / MinimapCanvas.ActualWidth * _viewModel.ZoomState.TotalDuration);
+                }
+                else
+                {
+                    DrawMinimap();
+                }
+                _minimapDragStarted = false;
+                _minimapDragMode = MinimapDragMode.None;
+                MinimapCanvas.ReleaseMouseCapture();
+                e.Handled = true;
+                return;
+            }
+
             if (_minimapDragMode == MinimapDragMode.None)
                 return;
+
+            // ビュー自由化のビュー移動では再生バーをずらさない(シーク確定なし)。
+            if (_minimapFreeViewDrag && _minimapDragMode == MinimapDragMode.MoveRange)
+            {
+                _viewModel.EndManualWaveformNavigation();
+                _resumePlaybackAfterMinimapDrag = false;
+                _wasPlayingBeforeMinimapDrag = false;
+                _minimapCarriedPosition = null;
+                _minimapDragStarted = false;
+                _minimapDragMode = MinimapDragMode.None;
+                _minimapFreeViewDrag = false;
+                _isZoomingFromRightHandle = false;
+                MinimapCanvas.ReleaseMouseCapture();
+                DrawMinimap();
+                e.Handled = true;
+                return;
+            }
 
             if (_minimapDragMode == MinimapDragMode.PointToRange &&
                 _viewModel.ZoomState != null && MinimapCanvas.ActualWidth > 0)
@@ -569,7 +756,8 @@ namespace PotatoMusicPlayer
                 // 範囲外に出た場合のみ近い方の端へ寄せる。中央への寄せは行わない。
                 double? finalPosition = _minimapDragMode == MinimapDragMode.PointToRange || _minimapDragStarted
                     ? _minimapCarriedPosition : null;
-                if (_minimapDragStarted && finalPosition == null &&
+                // ビュー自由化中はビュー操作で再生バーを動かさない。
+                if (_minimapDragStarted && finalPosition == null && !_minimapFreeViewDrag &&
                     (currentPosition < zoomState.VisibleRangeStart || currentPosition > zoomState.VisibleRangeEnd))
                     finalPosition = Math.Clamp(currentPosition, zoomState.VisibleRangeStart, zoomState.VisibleRangeEnd);
 
@@ -592,6 +780,7 @@ namespace PotatoMusicPlayer
             _minimapCarriedPosition = null;
             _minimapDragStarted = false;
             _minimapDragMode = MinimapDragMode.None;
+            _minimapFreeViewDrag = false;
             _isZoomingFromRightHandle = false;
             MinimapCanvas.ReleaseMouseCapture();
             e.Handled = true;
@@ -599,6 +788,14 @@ namespace PotatoMusicPlayer
 
         private void MinimapCanvas_LostMouseCapture(object sender, MouseEventArgs e)
         {
+            if (_minimapDragMode == MinimapDragMode.SelectRepeat)
+            {
+                _minimapDragMode = MinimapDragMode.None;
+                _minimapDragStarted = false;
+                DrawMinimap();
+                return;
+            }
+
             if (_minimapDragMode == MinimapDragMode.None)
                 return;
 
@@ -613,9 +810,260 @@ namespace PotatoMusicPlayer
             _viewModel.EndManualWaveformNavigation();
             _minimapDragMode = MinimapDragMode.None;
             _minimapDragStarted = false;
+            _minimapFreeViewDrag = false;
             _resumePlaybackAfterMinimapDrag = false;
             _wasPlayingBeforeMinimapDrag = false;
             DrawMinimap();
+        }
+
+        // ========== 全体波形ビューのリピート範囲 ==========
+
+        private void MinimapModeSwitch_Click(object sender, RoutedEventArgs e)
+        {
+            _isRepeatEditMode = MinimapModeSwitch?.IsChecked == true;
+            if (MinimapCanvas != null)
+                MinimapCanvas.Cursor = _isRepeatEditMode ? Cursors.Cross : null;
+            UpdateMinimapModeSwitchTooltip();
+            DrawMinimap();
+        }
+
+        private void UpdateMinimapModeSwitchTooltip()
+        {
+            if (MinimapModeSwitch == null)
+                return;
+
+            MinimapModeSwitch.ToolTip = _languageService.Get(
+                _isRepeatEditMode ? "Minimap.ModeRepeat" : "Minimap.ModeView");
+        }
+
+        private void RepeatEndBehaviorCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isUpdatingRepeatUi || _viewModel?.Settings == null)
+                return;
+
+            _viewModel.Settings.RepeatRangeMode = RepeatEndBehaviorCombo?.SelectedIndex == 1
+                ? RepeatRangeMode.StopAtEnd
+                : RepeatRangeMode.Loop;
+            UpdateRepeatRangeUi();
+        }
+
+        private void RepeatRangeClearButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_viewModel?.Settings == null)
+                return;
+
+            _viewModel.Settings.RepeatRangeEnabled = false;
+            _lastRepeatCheckPosition = double.NaN;
+            UpdateRepeatRangeUi();
+        }
+
+        private void PreviewRepeatSelection(double anchor, double current)
+        {
+            var zoomState = _viewModel?.ZoomState;
+            if (zoomState == null || zoomState.TotalDuration <= 0 || MinimapCanvas.ActualWidth <= 0)
+                return;
+
+            // 共有UIに仮配置する(確定は CommitRepeatSelection で行う)。
+            double start = Math.Clamp(Math.Min(anchor, current), 0, zoomState.TotalDuration);
+            double end = Math.Clamp(Math.Max(anchor, current), 0, zoomState.TotalDuration);
+            if (_minimapRangeOverlay == null)
+                DrawMinimap();
+            if (_minimapRangeOverlay == null)
+                return;
+
+            ApplyMinimapOverlayColors();
+            double left = start / zoomState.TotalDuration * MinimapCanvas.ActualWidth;
+            _minimapRangeOverlay.Width = Math.Max(1, (end - start) / zoomState.TotalDuration * MinimapCanvas.ActualWidth);
+            _minimapRangeOverlay.Height = MinimapCanvas.ActualHeight;
+            Canvas.SetLeft(_minimapRangeOverlay, left);
+            _minimapRangeOverlay.Visibility = Visibility.Visible;
+            UpdateMinimapHandle(ref _minimapLeftHandle, "LeftHandle", left);
+            UpdateMinimapHandle(ref _minimapRightHandle, "RightHandle", Math.Clamp(left + _minimapRangeOverlay.Width - 8, 0,
+                Math.Max(0, MinimapCanvas.ActualWidth - 8)));
+            _minimapLeftHandle.Visibility = Visibility.Visible;
+            _minimapRightHandle.Visibility = Visibility.Visible;
+            if (RepeatRangeLabel != null)
+                RepeatRangeLabel.Text = FormatRepeatRangeText(start, end);
+        }
+
+        private void CommitRepeatSelection(double anchor, double current)
+        {
+            var settings = _viewModel?.Settings;
+            var zoomState = _viewModel?.ZoomState;
+            if (settings == null || zoomState == null || zoomState.TotalDuration <= 0)
+                return;
+
+            double start = Math.Clamp(Math.Min(anchor, current), 0, zoomState.TotalDuration);
+            double end = Math.Clamp(Math.Max(anchor, current), 0, zoomState.TotalDuration);
+            if (end - start >= 0.1)
+            {
+                settings.RepeatRangeStart = start;
+                settings.RepeatRangeEnd = end;
+                settings.RepeatRangeEnabled = true;
+            }
+            else
+            {
+                settings.RepeatRangeEnabled = false;
+            }
+            _lastRepeatCheckPosition = double.NaN;
+            UpdateRepeatRangeUi();
+        }
+
+        private void UpdateRepeatRangeUi()
+        {
+            var settings = _viewModel?.Settings;
+            if (RepeatRangeLabel == null || RepeatEndBehaviorCombo == null)
+                return;
+
+            _isUpdatingRepeatUi = true;
+            try
+            {
+                RepeatEndBehaviorCombo.SelectedIndex =
+                    settings?.RepeatRangeMode == RepeatRangeMode.StopAtEnd ? 1 : 0;
+            }
+            finally
+            {
+                _isUpdatingRepeatUi = false;
+            }
+
+            RepeatRangeLabel.Text = FormatRepeatRangeText();
+            DrawMinimap();
+        }
+
+        private string FormatRepeatRangeText()
+        {
+            var settings = _viewModel?.Settings;
+            var zoomState = _viewModel?.ZoomState;
+            if (settings == null || zoomState == null || zoomState.TotalDuration <= 0 ||
+                !settings.RepeatRangeEnabled)
+                return _languageService.Get("Repeat.RangeEmpty");
+
+            double start = Math.Clamp(settings.RepeatRangeStart, 0, zoomState.TotalDuration);
+            double end = Math.Clamp(settings.RepeatRangeEnd, 0, zoomState.TotalDuration);
+            if (end - start < 0.1)
+                return _languageService.Get("Repeat.RangeEmpty");
+
+            return FormatRepeatRangeText(start, end);
+        }
+
+        private string FormatRepeatRangeText(double start, double end)
+        {
+            string mode = _viewModel?.Settings?.RepeatRangeMode == RepeatRangeMode.StopAtEnd
+                ? _languageService.Get("Repeat.StopAtEnd")
+                : _languageService.Get("Repeat.Loop");
+            return $"{FormatTime(TimeSpan.FromSeconds(start))} - {FormatTime(TimeSpan.FromSeconds(end))} ({mode})";
+        }
+
+        /// <summary>
+        /// リピート範囲全体を指定量だけ平行移動する(ビュー範囲・再生位置は不変)。
+        /// </summary>
+        private void MoveRepeatRange(double deltaTime, double totalDuration)
+        {
+            var settings = _viewModel?.Settings;
+            if (settings == null || totalDuration <= 0)
+                return;
+
+            double width = Math.Max(0.1, _minimapInitialRangeEnd - _minimapInitialRangeStart);
+            double start = Math.Clamp(_minimapInitialRangeStart + deltaTime, 0, Math.Max(0, totalDuration - width));
+            settings.RepeatRangeStart = start;
+            settings.RepeatRangeEnd = Math.Min(totalDuration, start + width);
+            UpdateRepeatRangeUi();
+        }
+
+        /// <summary>
+        /// リピート範囲の始端または終端を動かす(ビュー範囲・再生位置は不変)。
+        /// </summary>
+        private void ResizeRepeatRange(bool isStartEdge, double newEdge, double totalDuration)
+        {
+            var settings = _viewModel?.Settings;
+            if (settings == null || totalDuration <= 0)
+                return;
+
+            if (isStartEdge)
+                settings.RepeatRangeStart = Math.Clamp(newEdge, 0, settings.RepeatRangeEnd - 0.1);
+            else
+                settings.RepeatRangeEnd = Math.Clamp(newEdge, settings.RepeatRangeStart + 0.1, totalDuration);
+            UpdateRepeatRangeUi();
+        }
+
+        /// <summary>
+        /// モードに応じて共有範囲UIの色を付ける。ビュー=緑、リピート=青。
+        /// </summary>
+        private void ApplyMinimapOverlayColors()
+        {
+            if (_minimapRangeOverlay == null)
+                return;
+
+            if (_isRepeatEditMode)
+            {
+                _minimapRangeOverlay.Fill = (Brush)FindResource("AccentBlueBrush");
+                _minimapRangeOverlay.Stroke = (Brush)FindResource("AccentBlueBrush");
+                _minimapRangeOverlay.Opacity = 0.35;
+            }
+            else
+            {
+                _minimapRangeOverlay.Fill = (Brush)FindResource("RangeOverlayBrush");
+                _minimapRangeOverlay.Stroke = (Brush)FindResource("RangeOverlayBorderBrush");
+                _minimapRangeOverlay.Opacity = 1.0;
+            }
+            if (_minimapLeftHandle != null)
+                _minimapLeftHandle.Fill = (Brush)FindResource(
+                    _isRepeatEditMode ? "AccentBlueBrush" : "RangeOverlayBorderBrush");
+            if (_minimapRightHandle != null)
+                _minimapRightHandle.Fill = (Brush)FindResource(
+                    _isRepeatEditMode ? "AccentBlueBrush" : "RangeOverlayBorderBrush");
+        }
+
+        /// <summary>
+        /// 再生位置がリピート範囲の終端を横切ったらループ/停止させる。
+        /// 境界をまたいだ場合に true を返し、呼び出し側はそのフレームの後続描画を省く。
+        /// </summary>
+        private bool EnforceRepeatRange(double position)
+        {
+            var settings = _viewModel?.Settings;
+            var zoomState = _viewModel?.ZoomState;
+            if (settings == null || zoomState == null || !settings.RepeatRangeEnabled)
+                return false;
+
+            // シーク/範囲操作のドラッグ中は再生位置の付け替えと競合するため見送る。
+            if (_isDraggingSeekBar || _isDraggingWaveform || _minimapDragMode != MinimapDragMode.None)
+            {
+                _lastRepeatCheckPosition = position;
+                return false;
+            }
+
+            double total = zoomState.TotalDuration;
+            if (total <= 0)
+                return false;
+
+            double start = Math.Clamp(settings.RepeatRangeStart, 0, total);
+            double end = Math.Clamp(settings.RepeatRangeEnd, 0, total);
+            if (end - start < 0.1)
+                return false;
+
+            bool crossed = !double.IsNaN(_lastRepeatCheckPosition) &&
+                _lastRepeatCheckPosition < end && position >= end;
+            _lastRepeatCheckPosition = position;
+            if (!crossed)
+                return false;
+
+            if (settings.RepeatRangeMode == RepeatRangeMode.StopAtEnd)
+            {
+                // ワンショットで停止し、範囲先頭にキューする(範囲選択は維持)。
+                // 終端で停止したままにすると、エンジン位置の反映遅れで再開時の
+                // 範囲判定が外れて範囲を抜けてしまうため、停止時点で先頭へ戻す。
+                // 再生再開時は必ず範囲先頭から再生される。
+                _viewModel.Pause();
+                _viewModel.SetPosition(start);
+                _lastRepeatCheckPosition = start;
+                UpdateRepeatRangeUi();
+            }
+            else
+            {
+                _viewModel.SeekAndPlay(start);
+                _lastRepeatCheckPosition = start;
+            }
+            return true;
         }
 
         private void WaveformCanvas_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
@@ -638,10 +1086,31 @@ namespace PotatoMusicPlayer
 
         private void UpdateWaveformProgress()
         {
+            // エンジン読み込み中はそちらを優先表示する。
+            if (_viewModel?.IsEngineLoading == true)
+            {
+                WaveformProgressText.Visibility = Visibility.Collapsed;
+                return;
+            }
             double progress = _viewModel.WaveformProgress;
             bool isLoading = progress > 0 && progress < 1;
             WaveformProgressText.Visibility = isLoading ? Visibility.Visible : Visibility.Collapsed;
             WaveformProgressText.Text = isLoading ? $"波形を生成中... {(int)(progress * 100)}%" : string.Empty;
+        }
+
+        private void UpdateEngineLoadingUi()
+        {
+            if (EngineLoadingText == null || _viewModel == null)
+                return;
+
+            bool loading = _viewModel.IsEngineLoading;
+            EngineLoadingText.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+            if (!loading)
+                return;
+
+            double percent = _viewModel.EngineBufferingPercent;
+            string message = _languageService.Get("Loading.Audio");
+            EngineLoadingText.Text = percent >= 0 ? $"{message} {(int)percent}%" : message;
         }
 
         private void WaveformCanvas_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -682,6 +1151,16 @@ namespace PotatoMusicPlayer
 
         private void WaveformCanvas_PreviewMouseMove(object sender, MouseEventArgs e)
         {
+            // ビュー自由化の右ドラッグは再生位置に触れず、表示範囲だけを動かす。
+            if (_isFreeViewDragging)
+            {
+                if (e.RightButton != MouseButtonState.Pressed)
+                    return;
+
+                UpdateFreeViewPan(e);
+                return;
+            }
+
             if (!_isDraggingWaveform || e.LeftButton != MouseButtonState.Pressed)
                 return;
 
@@ -769,6 +1248,15 @@ namespace PotatoMusicPlayer
 
         private void WaveformCanvas_LostMouseCapture(object sender, MouseEventArgs e)
         {
+            if (_isFreeViewDragging)
+            {
+                _viewModel.EndManualWaveformNavigation();
+                _isFreeViewDragging = false;
+                WaveformCanvas.Cursor = null;
+                DrawWaveform();
+                return;
+            }
+
             if (!_isDraggingWaveform)
                 return;
 
@@ -779,6 +1267,64 @@ namespace PotatoMusicPlayer
             _resumePlaybackAfterWaveformDrag = false;
             _wasPlayingBeforeWaveformDrag = false;
             DrawWaveform();
+        }
+
+        // ========== ビュー自由化: 右ドラッグでビュー範囲を移動 ==========
+
+        private void WaveformCanvas_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            var zoomState = _viewModel?.ZoomState;
+            if (zoomState == null || zoomState.VisibleRangeDuration <= 0 || WaveformCanvas.ActualWidth <= 0)
+                return;
+            if (!_viewModel.Settings.WaveformZoom.FreeView)
+                return;
+
+            // 中央固定は手動のビュー操作と競合するため自動で切る。
+            if (_viewModel.Settings.WaveformZoom.CursorMode == CursorDisplayMode.CenterFixed)
+            {
+                _viewModel.Settings.WaveformZoom.CursorMode = CursorDisplayMode.LeftScroll;
+                if (SidebarCenterFixedCheck != null)
+                    SidebarCenterFixedCheck.IsChecked = false;
+                DrawWaveform();
+            }
+
+            _isFreeViewDragging = true;
+            _waveformPointerStartX = e.GetPosition(WaveformCanvas).X;
+            _waveformPanInitialRangeStart = _viewModel.ZoomState.VisibleRangeStart;
+            _waveformPanInitialRangeDuration = _viewModel.ZoomState.VisibleRangeDuration;
+            _viewModel.BeginManualWaveformNavigation();
+            WaveformCanvas.Cursor = Cursors.ScrollAll;
+            WaveformCanvas.CaptureMouse();
+            e.Handled = true;
+        }
+
+        private void WaveformCanvas_PreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_isFreeViewDragging)
+                return;
+
+            UpdateFreeViewPan(e);
+            _viewModel.EndManualWaveformNavigation();
+            _isFreeViewDragging = false;
+            WaveformCanvas.Cursor = null;
+            WaveformCanvas.ReleaseMouseCapture();
+            e.Handled = true;
+        }
+
+        private void UpdateFreeViewPan(MouseEventArgs e)
+        {
+            if (WaveformCanvas.ActualWidth <= 0)
+                return;
+
+            // 内容がカーソルに付いてくる向きに表示範囲をずらす。端では丸める。
+            double deltaX = e.GetPosition(WaveformCanvas).X - _waveformPointerStartX;
+            double deltaTime = deltaX / WaveformCanvas.ActualWidth * _waveformPanInitialRangeDuration;
+            _viewModel.MoveWaveformRange(_waveformPanInitialRangeStart - deltaTime);
+            RefreshWaveformRange();
+            var state = _viewModel.PlaybackState;
+            if (state != null)
+                DrawPlaybackCursor(TimeSpan.FromSeconds(state.CurrentPosition.TotalSeconds));
+            DrawMinimap();
         }
 
         private void UpdateWaveformPan(MouseEventArgs e)

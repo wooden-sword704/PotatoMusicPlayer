@@ -1,0 +1,201 @@
+<Window x:Class="PotatoMusicPlayer.Views.PlaylistWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="プレイリスト ウィザード" Icon="pack://application:,,,/Resources/Icons/potato.png"
+        Height="600" Width="520" WindowStartupLocation="CenterOwner"
+        Style="{StaticResource AppWindowStyle}" ResizeMode="NoResize">
+    <Window.Resources>
+        <Style x:Key="PlaylistItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource MenuHoverBrush}"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource MenuHoverBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+    <Border Style="{StaticResource MaterialCardBorderStyle}" Padding="12">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock x:Name="PlaylistTitleText" Grid.Row="0" Text="プレイリスト ウィザード"
+                       FontSize="14" FontWeight="Bold" Margin="0,0,0,8"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+
+            <!-- ハブ: 行き先選択 -->
+            <StackPanel x:Name="HubPanel" Grid.Row="1" VerticalAlignment="Center">
+                <Button x:Name="HubPlayButton" Content="プレイリストから再生" FontSize="14" Height="48" Margin="0,0,0,12"
+                        Style="{StaticResource SettingsInputButtonStyle}"
+                        Background="{DynamicResource ApplyButtonBrush}" Foreground="{DynamicResource AccentButtonForegroundBrush}"
+                        BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                        Click="HubPlayButton_Click"/>
+                <Button x:Name="HubNewButton" Content="プレイリストを新規作成" FontSize="14" Height="48" Margin="0,0,0,12"
+                        Style="{StaticResource SettingsInputButtonStyle}"
+                        Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                        BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                        Click="HubNewButton_Click"/>
+                <Button x:Name="HubManageButton" Content="既存のプレイリストの管理" FontSize="14" Height="48" Margin="0,0,0,12"
+                        Style="{StaticResource SettingsInputButtonStyle}"
+                        Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                        BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                        Click="HubManageButton_Click"/>
+                <Button x:Name="PlaylistCloseButton" Content="閉じる" MinWidth="88" Height="28" Margin="0,4,0,0"
+                        HorizontalAlignment="Right"
+                        Style="{StaticResource SettingsInputButtonStyle}"
+                        Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                        BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                        Click="PlaylistCloseButton_Click"/>
+            </StackPanel>
+
+            <!-- 再生: プレイリスト選択→曲選択→再生 -->
+            <Grid x:Name="PlayPanel" Grid.Row="1" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <ComboBox x:Name="PlayPlaylistCombo" Grid.Row="0" Margin="0,0,0,8"
+                          Style="{StaticResource ComboBoxStyle}" DisplayMemberPath="Name"
+                          SelectionChanged="PlayPlaylistCombo_SelectionChanged"/>
+                <ListBox x:Name="PlayTrackListBox" Grid.Row="1" MinHeight="160"
+                         Background="{DynamicResource SurfaceRaisedBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                         BorderBrush="{DynamicResource BorderDefaultBrush}" BorderThickness="1"
+                         DisplayMemberPath="FileName" ItemContainerStyle="{StaticResource PlaylistItemStyle}"
+                         MouseDoubleClick="PlayTrackListBox_DoubleClick"/>
+                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+                    <Button x:Name="PlaylistPlayButton" Content="再生" MinWidth="88" Height="28" Margin="0,0,8,0"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource ApplyButtonBrush}" Foreground="{DynamicResource AccentButtonForegroundBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="PlaylistPlayButton_Click"/>
+                    <Button x:Name="PlayBackButton" Content="戻る" MinWidth="88" Height="28"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="BackButton_Click"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- 管理: プレイリスト選択→編集/削除 -->
+            <Grid x:Name="ManagePanel" Grid.Row="1" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <ListBox x:Name="ManagePlaylistBox" Grid.Row="0" MinHeight="160"
+                         Background="{DynamicResource SurfaceRaisedBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                         BorderBrush="{DynamicResource BorderDefaultBrush}" BorderThickness="1"
+                         DisplayMemberPath="Name" ItemContainerStyle="{StaticResource PlaylistItemStyle}"/>
+                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+                    <Button x:Name="ManageEditButton" Content="編集" MinWidth="88" Height="28" Margin="0,0,8,0"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource ApplyButtonBrush}" Foreground="{DynamicResource AccentButtonForegroundBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="ManageEditButton_Click"/>
+                    <Button x:Name="ManageDeleteButton" Content="削除" MinWidth="88" Height="28" Margin="0,0,8,0"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="ManageDeleteButton_Click"/>
+                    <Button x:Name="ManageBackButton" Content="戻る" MinWidth="88" Height="28"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="BackButton_Click"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- 編集: 曲の追加/削除/並べ替え + エクスポート/インポート + 保存 -->
+            <Grid x:Name="EditPanel" Grid.Row="1" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0" Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="PlaylistNameLabel" Grid.Column="0" Text="名前" VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,8,0"/>
+                    <TextBox x:Name="PlaylistNameBox" Grid.Column="1" Height="24" VerticalContentAlignment="Center"
+                             Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                             BorderBrush="{DynamicResource BorderControlBrush}"/>
+                </Grid>
+                <ListBox x:Name="PlaylistListBox" Grid.Row="1" MinHeight="120"
+                         Background="{DynamicResource SurfaceRaisedBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                         BorderBrush="{DynamicResource BorderDefaultBrush}" BorderThickness="1"
+                         DisplayMemberPath="FileName" ItemContainerStyle="{StaticResource PlaylistItemStyle}"
+                         SelectionChanged="PlaylistListBox_SelectionChanged"/>
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button x:Name="PlaylistAddButton" Content="追加..." MinWidth="72" Height="28" Margin="0,0,8,0"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="PlaylistAddButton_Click"/>
+                    <Button x:Name="PlaylistRemoveButton" Content="削除" MinWidth="72" Height="28" Margin="0,0,8,0"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="PlaylistRemoveButton_Click"/>
+                    <Button x:Name="PlaylistMoveUpButton" Content="上へ" MinWidth="64" Height="28" Margin="0,0,8,0"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="PlaylistMoveUpButton_Click"/>
+                    <Button x:Name="PlaylistMoveDownButton" Content="下へ" MinWidth="64" Height="28" Margin="0,0,8,0"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="PlaylistMoveDownButton_Click"/>
+                    <Button x:Name="PlaylistClearButton" Content="クリア" MinWidth="64" Height="28"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="PlaylistClearButton_Click"/>
+                </StackPanel>
+                <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center">
+                    <CheckBox x:Name="PlaylistPackAudioCheck" Content="音声ファイルも一緒にパックする"
+                              Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <Button x:Name="PlaylistExportButton" Content="エクスポート..." MinWidth="110" Height="28" Margin="0,0,8,0"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="PlaylistExportButton_Click"/>
+                    <Button x:Name="PlaylistImportButton" Content="インポート..." MinWidth="110" Height="28"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="PlaylistImportButton_Click"/>
+                </StackPanel>
+                <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+                    <Button x:Name="EditSaveButton" Content="保存" MinWidth="88" Height="28" Margin="0,0,8,0"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource ApplyButtonBrush}" Foreground="{DynamicResource AccentButtonForegroundBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="EditSaveButton_Click"/>
+                    <Button x:Name="EditBackButton" Content="戻る" MinWidth="88" Height="28"
+                            Style="{StaticResource SettingsInputButtonStyle}"
+                            Background="{DynamicResource SurfaceControlBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderControlBrush}" BorderThickness="1"
+                            Click="BackButton_Click"/>
+                </StackPanel>
+            </Grid>
+
+            <TextBlock x:Name="PlaylistStatusText" Grid.Row="2" Margin="0,8,0,0" TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
+        </Grid>
+    </Border>
+</Window>
